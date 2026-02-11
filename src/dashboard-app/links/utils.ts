@@ -11,7 +11,7 @@ function appendLinkableFields(
       : link.map((l) => `+${l}.*`)
   })
 
-  return [fields, ...linkableFields].join(",")
+  return [fields, ...linkableFields].filter(Boolean).join(",")
 }
 
 export function getLinkedFields(model: CustomFieldModel, fields: string = "") {

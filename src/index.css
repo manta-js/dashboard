@@ -34,15 +34,9 @@
 }
 
 @layer components {
-  .worfklow-grid {
+  .workflow-grid {
     background-image: radial-gradient(black 1px, transparent 0);
     background-size: 40px 40px;
-    background: repeat;
+    background-repeat: repeat;
   }
-}
-
-.worfklow-grid {
-  background-image: radial-gradient(black 1px, transparent 0);
-  background-size: 40px 40px;
-  background: repeat;
 }

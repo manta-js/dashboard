@@ -25,7 +25,7 @@ interface AppProps {
 
 function App({ plugins = [] }: AppProps) {
   const app = new DashboardApp({
-    plugins: [localPlugin, ...plugins],
+    plugins: [...plugins, localPlugin],
   })
 
   return <div>{app.render()}</div>

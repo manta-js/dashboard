@@ -56,7 +56,7 @@ function createExtendedDefaultValues<TData>(
     return acc
   }, {} as Record<string, any>)
 
-  return Object.assign(baseDefaultValues, { additional_data })
+  return { ...baseDefaultValues, additional_data }
 }
 
 export const useExtendableForm = <

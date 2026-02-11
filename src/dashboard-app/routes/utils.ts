@@ -166,7 +166,7 @@ const addRoute = (
       leaf.children = processParallelRoutes(parallelRoutes, currentFullPath)
       Object.assign(route, leaf)
     } else {
-      const leaf = createLeafRoute(Component, loader)
+      const leaf = createLeafRoute(Component, loader, handle)
       leaf.children = processParallelRoutes(parallelRoutes, currentFullPath)
       route.children.push(leaf)
     }

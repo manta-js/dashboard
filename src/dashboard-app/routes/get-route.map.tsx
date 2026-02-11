@@ -8,6 +8,7 @@ import { SettingsLayout } from "../../components/layout/settings-layout"
 import { ErrorBoundary } from "../../components/utilities/error-boundary"
 import { TaxRegionDetailBreadcrumb } from "../../routes/tax-regions/tax-region-detail/breadcrumb"
 import { taxRegionLoader } from "../../routes/tax-regions/tax-region-detail/loader"
+import { mergeExtensionRoutes } from "./merge-extension-routes"
 
 export function getRouteMap({
   settingsRoutes,
@@ -23,7 +24,7 @@ export function getRouteMap({
       children: [
         {
           element: <MainLayout />,
-          children: [
+          children: mergeExtensionRoutes([
             {
               path: "/",
               errorElement: <ErrorBoundary />,
@@ -910,8 +911,7 @@ export function getRouteMap({
                 },
               ],
             },
-            ...coreRoutes,
-          ],
+          ], coreRoutes),
         },
       ],
     },
@@ -925,7 +925,7 @@ export function getRouteMap({
             breadcrumb: () => t("app.nav.settings.header"),
           },
           element: <SettingsLayout />,
-          children: [
+          children: mergeExtensionRoutes([
             {
               index: true,
               errorElement: <ErrorBoundary />,
@@ -1869,8 +1869,7 @@ export function getRouteMap({
                 },
               ],
             },
-            ...(settingsRoutes?.[0]?.children || []),
-          ],
+          ], settingsRoutes?.[0]?.children || []),
         },
       ],
     },

@@ -137,7 +137,8 @@ export class DashboardApp {
     allMenuItems.sort((a, b) => a.path.length - b.path.length)
 
     allMenuItems.forEach((item) => {
-      item.path = item.path.replace(OPTIONAL_LAST_SEGMENT_MATCH, "")
+      const normalizedPath = item.path.replace(OPTIONAL_LAST_SEGMENT_MATCH, "")
+      item.path = normalizedPath
       if (item.path.includes("/:") || item.path.endsWith("/*")) {
         if (process.env.NODE_ENV === "development") {
           console.warn(

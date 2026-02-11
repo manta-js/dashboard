@@ -30,6 +30,8 @@ import { useExtension } from "../../../providers/extension-provider"
 import { useSearch } from "../../../providers/search-provider"
 import { UserMenu } from "../user-menu"
 import { useDocumentDirection } from "../../../hooks/use-document-direction"
+import menuConfig from "virtual:dashboard/menu-config"
+import type { MenuConfig } from "../../../vite-plugin/types"
 
 export const MainLayout = () => {
   return (
@@ -177,81 +179,40 @@ const Header = () => {
   )
 }
 
+const getDefaultMedusaRoutes = (t: (key: string) => string): Omit<INavItem, "pathname">[] => [
+  { icon: <ShoppingCart />, label: t("orders.domain"), to: "/orders", items: [] },
+  { icon: <Tag />, label: t("products.domain"), to: "/products", items: [
+    { label: t("collections.domain"), to: "/collections" },
+    { label: t("categories.domain"), to: "/categories" },
+  ]},
+  { icon: <Buildings />, label: t("inventory.domain"), to: "/inventory", items: [
+    { label: t("reservations.domain"), to: "/reservations" },
+  ]},
+  { icon: <Users />, label: t("customers.domain"), to: "/customers", items: [
+    { label: t("customerGroups.domain"), to: "/customer-groups" },
+  ]},
+  { icon: <ReceiptPercent />, label: t("promotions.domain"), to: "/promotions", items: [
+    { label: t("campaigns.domain"), to: "/campaigns" },
+  ]},
+  { icon: <CurrencyDollar />, label: t("priceLists.domain"), to: "/price-lists" },
+]
+
 const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
   const { t } = useTranslation()
 
-  return [
-    {
-      icon: <ShoppingCart />,
-      label: t("orders.domain"),
-      to: "/orders",
-      items: [
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("draftOrders.domain"),
-        //   to: "/draft-orders",
-        // },
-      ],
-    },
-    {
-      icon: <Tag />,
-      label: t("products.domain"),
-      to: "/products",
-      items: [
-        {
-          label: t("collections.domain"),
-          to: "/collections",
-        },
-        {
-          label: t("categories.domain"),
-          to: "/categories",
-        },
-        // TODO: Enable when domin is introduced
-        // {
-        //   label: t("giftCards.domain"),
-        //   to: "/gift-cards",
-        // },
-      ],
-    },
-    {
-      icon: <Buildings />,
-      label: t("inventory.domain"),
-      to: "/inventory",
-      items: [
-        {
-          label: t("reservations.domain"),
-          to: "/reservations",
-        },
-      ],
-    },
-    {
-      icon: <Users />,
-      label: t("customers.domain"),
-      to: "/customers",
-      items: [
-        {
-          label: t("customerGroups.domain"),
-          to: "/customer-groups",
-        },
-      ],
-    },
-    {
-      icon: <ReceiptPercent />,
-      label: t("promotions.domain"),
-      to: "/promotions",
-      items: [
-        {
-          label: t("campaigns.domain"),
-          to: "/campaigns",
-        },
-      ],
-    },
-    {
-      icon: <CurrencyDollar />,
-      label: t("priceLists.domain"),
-      to: "/price-lists",
-    },
-  ]
+  if (!menuConfig) {
+    return getDefaultMedusaRoutes(t)
+  }
+
+  return (menuConfig as MenuConfig).items.map((item) => ({
+    icon: item.icon,
+    label: item.useTranslation ? t(item.label) : item.label,
+    to: item.to,
+    items: item.items?.map((sub) => ({
+      label: sub.useTranslation ? t(sub.label) : sub.label,
+      to: sub.to,
+    })) ?? [],
+  }))
 }
 
 const Searchbar = () => {
@@ -292,7 +253,7 @@ const CoreRouteSection = () => {
   menuItems.forEach((item) => {
     if (item.nested) {
       const route = coreRoutes.find((route) => route.to === item.nested)
-      if (route) {
+      if (route && !route.items?.some((existing) => existing.to === item.to)) {
         route.items?.push(item)
       }
     }
@@ -308,11 +269,27 @@ const CoreRouteSection = () => {
   )
 }
 
+// Derived from config: avoids duplication between custom menu and extensions
+const getMainMenuPaths = (): string[] => {
+  if (!menuConfig) return []
+  const config = menuConfig as MenuConfig
+  const paths: string[] = []
+  config.items.forEach((item) => {
+    paths.push(item.to)
+    item.items?.forEach((sub) => paths.push(sub.to))
+  })
+  return paths
+}
+
+const MAIN_MENU_PATHS = getMainMenuPaths()
+
 const ExtensionRouteSection = () => {
   const { t } = useTranslation()
   const { getMenu } = useExtension()
 
-  const menuItems = getMenu("coreExtensions").filter((item) => !item.nested)
+  const menuItems = getMenu("coreExtensions").filter(
+    (item) => !item.nested && !MAIN_MENU_PATHS.includes(item.to) && !MAIN_MENU_PATHS.includes(item.path)
+  )
 
   if (!menuItems.length) {
     return null

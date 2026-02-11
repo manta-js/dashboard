@@ -12,7 +12,7 @@ export function sortMenuItemsByRank(
   // Sort items by rank (ascending order)
   // Items with rank come first, sorted by rank value
   // Items without rank come last, maintaining their original order
-  const sortedItems = items.sort((a, b) => {
+  const sortedItems = [...items].sort((a, b) => {
     // If both have rank, sort by rank value
     if (a.rank !== undefined && b.rank !== undefined) {
       return a.rank - b.rank
@@ -30,14 +30,16 @@ export function sortMenuItemsByRank(
   })
 
   // Recursively sort nested items
-  sortedItems.forEach((item) => {
+  return sortedItems.map((item) => {
     if (item.items && item.items.length > 0) {
-      item.items = sortMenuItemsByRank(
-        item.items as (INavItem & { rank?: number })[]
-      )
+      return {
+        ...item,
+        items: sortMenuItemsByRank(
+          item.items as (INavItem & { rank?: number })[]
+        ),
+      }
     }
+    return item
   })
-
-  return sortedItems
 }
 
