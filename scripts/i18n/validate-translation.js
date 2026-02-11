@@ -14,6 +14,11 @@ if (!fileName) {
   process.exit(1)
 }
 
+if (fileName.includes("..") || path.isAbsolute(fileName)) {
+  console.error("Invalid file name. Please provide a simple file name (e.g., en.json).")
+  process.exit(1)
+}
+
 const filePath = path.join(__dirname, "../../src/i18n/translations", fileName)
 
 try {
