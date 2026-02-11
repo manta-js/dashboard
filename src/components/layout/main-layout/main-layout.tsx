@@ -200,7 +200,7 @@ const getDefaultMedusaRoutes = (t: (key: string) => string): Omit<INavItem, "pat
 const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
   const { t } = useTranslation()
 
-  if (!menuConfig) {
+  if (!menuConfig || !Array.isArray((menuConfig as MenuConfig).items)) {
     return getDefaultMedusaRoutes(t)
   }
 
@@ -271,7 +271,7 @@ const CoreRouteSection = () => {
 
 // Derived from config: avoids duplication between custom menu and extensions
 const getMainMenuPaths = (): string[] => {
-  if (!menuConfig) return []
+  if (!menuConfig || !Array.isArray((menuConfig as MenuConfig).items)) return []
   const config = menuConfig as MenuConfig
   const paths: string[] = []
   config.items.forEach((item) => {

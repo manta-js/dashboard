@@ -61,4 +61,7 @@ async function outputSchema() {
     })
 }
 
-outputSchema()
+outputSchema().catch((error) => {
+  console.error("Failed to generate schema:", error.message)
+  process.exit(1)
+})

@@ -7,17 +7,30 @@ const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
 
 const COMPONENT_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs"]
 
+const VALID_LOADERS: Record<string, string> = {
+  tsx: "tsx",
+  ts: "ts",
+  jsx: "jsx",
+  js: "js",
+  mts: "ts",
+  mjs: "js",
+}
+
 /**
  * Extract a component name from a resolved file path.
  */
 function getComponentName(filePath: string): string | null {
   const normalized = filePath.replace(/\\/g, "/")
-  const parts = normalized.split("/")
+  const parts = normalized.split("/").filter(Boolean)
+  if (parts.length === 0) return null
+
   const fileName = parts[parts.length - 1]
   const baseName = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
 
+  if (!baseName) return null
+
   if (baseName === "index") {
-    return parts.length >= 2 ? parts[parts.length - 2] : null
+    return parts.length >= 2 ? parts[parts.length - 2] || null : null
   }
   if (parts.length >= 2 && baseName === parts[parts.length - 2]) {
     return baseName
@@ -40,9 +53,15 @@ export function customDashboardPlugin(): Plugin {
   if (fs.existsSync(componentsDir)) {
     for (const file of fs.readdirSync(componentsDir)) {
       const fullPath = path.resolve(componentsDir, file)
-      if (!fs.statSync(fullPath).isFile()) continue
+      try {
+        if (!fs.statSync(fullPath).isFile()) continue
+      } catch {
+        continue
+      }
       const name = file.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
-      overridesByName.set(name, fullPath)
+      if (name) {
+        overridesByName.set(name, fullPath)
+      }
     }
   }
 
@@ -82,7 +101,7 @@ export function customDashboardPlugin(): Plugin {
               const normalized = args.path.replace(/\\/g, "/")
               if (!normalized.includes("/dashboard/dist/")) return undefined
 
-              const srcEntry = args.path
+              const srcEntry = normalized
                 .replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
               if (!fs.existsSync(srcEntry)) return undefined
 
@@ -111,6 +130,7 @@ export function customDashboardPlugin(): Plugin {
               if (componentName && overrides.has(componentName)) {
                 const overridePath = overrides.get(componentName)!
                 const ext = path.extname(overridePath).slice(1)
+                const loader = VALID_LOADERS[ext] || "tsx"
                 if (process.env.NODE_ENV === "development") {
                   console.log(
                     `[custom-dashboard] Override: ${componentName} → ${overridePath}`
@@ -118,7 +138,7 @@ export function customDashboardPlugin(): Plugin {
                 }
                 return {
                   contents: fs.readFileSync(overridePath, "utf-8"),
-                  loader: ext as any,
+                  loader: loader as any,
                   resolveDir: path.dirname(overridePath),
                 }
               }
@@ -141,8 +161,9 @@ export function customDashboardPlugin(): Plugin {
       if (id !== MENU_RESOLVED_ID) return
       const basePath = path.resolve(process.cwd(), "src/admin/menu.config")
       for (const ext of COMPONENT_EXTENSIONS) {
-        if (fs.existsSync(basePath + ext)) {
-          return `export { default } from "${(basePath + ext).replace(/\\/g, "/")}"`
+        const fullPath = (basePath + ext).replace(/\\/g, "/")
+        if (fs.existsSync(fullPath)) {
+          return `export { default } from "${fullPath}"`
         }
       }
       return "export default null"
