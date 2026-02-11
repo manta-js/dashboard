@@ -14,7 +14,7 @@ function generateSchemaFromObject(obj) {
   if (Array.isArray(obj)) {
     return {
       type: "array",
-      items: generateSchemaFromObject(obj[0] || "string"),
+      items: obj.length > 0 ? generateSchemaFromObject(obj[0]) : { type: "string" },
     }
   }
 

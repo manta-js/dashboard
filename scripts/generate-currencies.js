@@ -42,5 +42,6 @@ async function generateCurrencies() {
     console.log("Currency info generated")
   } catch (e) {
     console.error(e)
+    process.exit(1)
   }
 })()

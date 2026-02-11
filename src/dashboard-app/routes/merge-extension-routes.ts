@@ -28,10 +28,19 @@ export function mergeExtensionRoutes(
     const merged = { ...existing }
 
     // Extension component takes priority
-    if (ext.lazy) {
-      merged.lazy = ext.lazy
-      delete (merged as any).Component
-      delete (merged as any).loader
+    if (ext.lazy || ext.Component) {
+      if (ext.lazy) {
+        merged.lazy = ext.lazy
+        delete (merged as any).Component
+      } else if (ext.Component) {
+        ;(merged as any).Component = ext.Component
+        delete (merged as any).lazy
+      }
+      if (ext.loader) {
+        ;(merged as any).loader = ext.loader
+      } else {
+        delete (merged as any).loader
+      }
     }
 
     // Recursively merge children — static children not redefined by the

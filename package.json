@@ -98,7 +98,7 @@
     "@medusajs/types": "2.13.1",
     "@medusajs/ui-preset": "2.13.1",
     "@types/node": "^20.0.0",
-    "@types/react": "^19.2.13",
+    "@types/react": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.31",

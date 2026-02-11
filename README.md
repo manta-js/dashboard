@@ -114,11 +114,11 @@ Define your own sidebar menu by creating a `src/admin/menu.config.ts` file:
 your-project/
 └── src/
     └── admin/
-        └── menu.config.ts
+        └── menu.config.tsx
 ```
 
-```ts
-// src/admin/menu.config.ts
+```tsx
+// src/admin/menu.config.tsx
 import { ShoppingCart, Users, BuildingStorefront } from "@medusajs/icons"
 import type { MenuConfig } from "@mantajs/dashboard/vite-plugin"
 
