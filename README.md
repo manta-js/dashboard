@@ -108,7 +108,7 @@ This uses Medusa's `@medusajs/admin-vite-plugin` to discover routes in `src/admi
 
 ### 3. Custom Menu Configuration
 
-Define your own sidebar menu by creating a `src/admin/menu.config.ts` file:
+Define your own sidebar menu by creating a `src/admin/menu.config.tsx` file:
 
 ```
 your-project/

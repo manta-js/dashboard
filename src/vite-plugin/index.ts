@@ -103,7 +103,13 @@ export function customDashboardPlugin(): Plugin {
 
               const srcEntry = normalized
                 .replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
-              if (!fs.existsSync(srcEntry)) return undefined
+
+              let contents: string
+              try {
+                contents = fs.readFileSync(srcEntry, "utf-8")
+              } catch {
+                return undefined
+              }
 
               if (process.env.NODE_ENV === "development") {
                 console.log(
@@ -111,7 +117,7 @@ export function customDashboardPlugin(): Plugin {
                 )
               }
               return {
-                contents: fs.readFileSync(srcEntry, "utf-8"),
+                contents,
                 loader: "tsx",
                 resolveDir: path.dirname(srcEntry),
               }
@@ -131,13 +137,21 @@ export function customDashboardPlugin(): Plugin {
                 const overridePath = overrides.get(componentName)!
                 const ext = path.extname(overridePath).slice(1)
                 const loader = VALID_LOADERS[ext] || "tsx"
+
+                let contents: string
+                try {
+                  contents = fs.readFileSync(overridePath, "utf-8")
+                } catch {
+                  return undefined
+                }
+
                 if (process.env.NODE_ENV === "development") {
                   console.log(
                     `[custom-dashboard] Override: ${componentName} → ${overridePath}`
                   )
                 }
                 return {
-                  contents: fs.readFileSync(overridePath, "utf-8"),
+                  contents,
                   loader: loader as any,
                   resolveDir: path.dirname(overridePath),
                 }
