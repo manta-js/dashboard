@@ -1,4 +1,4 @@
-import { Plugin } from "vite"
+import { Plugin, ViteDevServer } from "vite"
 import path from "path"
 import fs from "fs"
 
@@ -69,6 +69,23 @@ function getComponentName(filePath: string): string | null {
 }
 
 /**
+ * Find the dashboard source directory by checking known install paths.
+ * Works with yarn resolutions, direct installs, and yalc links.
+ */
+function findDashboardSrc(): string | null {
+  const cwd = process.cwd()
+  const candidates = [
+    path.join(cwd, "node_modules", "@medusajs", "dashboard", "src"),
+    path.join(cwd, "node_modules", "@mantajs", "dashboard", "src"),
+    path.join(cwd, ".yalc", "@mantajs", "dashboard", "src"),
+  ]
+  for (const dir of candidates) {
+    if (fs.existsSync(dir)) return dir
+  }
+  return null
+}
+
+/**
  * Unified Vite plugin for @mantajs/dashboard.
  *
  * Handles:
@@ -79,6 +96,23 @@ function getComponentName(filePath: string): string | null {
 export function customDashboardPlugin(): Plugin {
   const componentsDir = path.resolve(process.cwd(), "src/admin/components")
   const overridesByName = new Map<string, string>()
+
+  // Track which overrides were actually matched during esbuild pre-bundling.
+  // Only these are real overrides — the rest are regular project components
+  // that happen to live in the same directory.
+  const appliedOverrides = new Set<string>()
+
+  // Scan dashboard source at startup to know all possible override targets.
+  // This lets the file watcher decide if a newly created file could be an
+  // override, without maintaining any hardcoded list.
+  const knownDashboardComponents = new Set<string>()
+  const dashboardSrc = findDashboardSrc()
+  if (dashboardSrc) {
+    for (const f of collectComponentFiles(dashboardSrc)) {
+      const cName = getComponentName(f)
+      if (cName) knownDashboardComponents.add(cName)
+    }
+  }
 
   if (fs.existsSync(componentsDir)) {
     const collectedFiles = collectComponentFiles(componentsDir).sort()
@@ -98,8 +132,15 @@ export function customDashboardPlugin(): Plugin {
 
   const hasOverrides = overridesByName.size > 0
 
-  if (hasOverrides && process.env.NODE_ENV === "development") {
-    console.log("[custom-dashboard] overrides:", [...overridesByName.keys()])
+  if (process.env.NODE_ENV === "development") {
+    if (hasOverrides) {
+      console.log("[custom-dashboard] overrides:", [...overridesByName.keys()])
+    }
+    if (knownDashboardComponents.size > 0) {
+      console.log(
+        `[custom-dashboard] Scanned ${knownDashboardComponents.size} dashboard components for override matching`
+      )
+    }
   }
 
   return {
@@ -112,89 +153,169 @@ export function customDashboardPlugin(): Plugin {
       config.optimizeDeps.exclude = config.optimizeDeps.exclude || []
       config.optimizeDeps.exclude.push(MENU_VIRTUAL_ID)
 
-      if (hasOverrides) {
-        // Strategy: the package.json points to dist/app.mjs (so the browser
-        // gets a working pre-bundled chunk — no blank page).  But during
-        // esbuild pre-bundling we redirect the dist entry to the source TSX
-        // via onLoad, so esbuild follows individual imports and we can swap
-        // component files with the user's overrides.
-        config.optimizeDeps.esbuildOptions = config.optimizeDeps.esbuildOptions || {}
-        config.optimizeDeps.esbuildOptions.plugins =
-          config.optimizeDeps.esbuildOptions.plugins || []
+      // Always set up the esbuild override plugin — even if there are no
+      // overrides yet, the configureServer watcher may add some at runtime
+      // and trigger a restart.
+      config.optimizeDeps.esbuildOptions = config.optimizeDeps.esbuildOptions || {}
+      config.optimizeDeps.esbuildOptions.plugins =
+        config.optimizeDeps.esbuildOptions.plugins || []
 
-        const overrides = overridesByName
-        config.optimizeDeps.esbuildOptions.plugins.push({
-          name: "dashboard-component-overrides",
-          setup(build) {
-            // 1. Redirect the dist entry to source so esbuild processes
-            //    individual TSX files instead of one big pre-built bundle.
-            build.onLoad({ filter: /app\.(mjs|js)$/ }, (args) => {
-              const normalized = args.path.replace(/\\/g, "/")
-              if (!normalized.includes("/dashboard/dist/")) return undefined
+      const overrides = overridesByName
+      config.optimizeDeps.esbuildOptions.plugins.push({
+        name: "dashboard-component-overrides",
+        setup(build) {
+          // 1. Redirect the dist entry to source so esbuild processes
+          //    individual TSX files instead of one big pre-built bundle.
+          build.onLoad({ filter: /app\.(mjs|js)$/ }, (args) => {
+            // Only activate when there are overrides
+            if (overrides.size === 0) return undefined
 
-              const srcEntry = normalized
-                .replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
+            const normalized = args.path.replace(/\\/g, "/")
+            if (!normalized.includes("/dashboard/dist/")) return undefined
+
+            const srcEntry = normalized
+              .replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
+
+            let contents: string
+            try {
+              contents = fs.readFileSync(srcEntry, "utf-8")
+            } catch {
+              return undefined
+            }
+
+            if (process.env.NODE_ENV === "development") {
+              console.log(
+                `[custom-dashboard] Redirecting entry: ${args.path} → ${srcEntry}`
+              )
+            }
+            return {
+              contents,
+              loader: "tsx",
+              resolveDir: path.dirname(srcEntry),
+            }
+          })
+
+          // 2. Intercept individual source files to swap with overrides.
+          build.onLoad({ filter: /\.(tsx?|jsx?)$/ }, (args) => {
+            if (overrides.size === 0) return undefined
+
+            const normalized = args.path.replace(/\\/g, "/")
+            if (!normalized.includes("/dashboard/src/")) return undefined
+
+            // Skip index/barrel files to preserve re-exports
+            const fileName = path.basename(args.path)
+            if (fileName.startsWith("index.")) return undefined
+
+            const componentName = getComponentName(args.path)
+            if (componentName && overrides.has(componentName)) {
+              const overridePath = overrides.get(componentName)!
+              const ext = path.extname(overridePath).slice(1)
+              const loader = VALID_LOADERS[ext] || "tsx"
 
               let contents: string
               try {
-                contents = fs.readFileSync(srcEntry, "utf-8")
+                contents = fs.readFileSync(overridePath, "utf-8")
               } catch {
                 return undefined
               }
 
+              // Track this as a real applied override
+              appliedOverrides.add(componentName)
+
               if (process.env.NODE_ENV === "development") {
                 console.log(
-                  `[custom-dashboard] Redirecting entry: ${args.path} → ${srcEntry}`
+                  `[custom-dashboard] Override: ${componentName} → ${overridePath}`
                 )
               }
               return {
                 contents,
-                loader: "tsx",
-                resolveDir: path.dirname(srcEntry),
+                loader: loader as any,
+                resolveDir: path.dirname(overridePath),
               }
-            })
+            }
+            return undefined
+          })
+        },
+      })
 
-            // 2. Intercept individual source files to swap with overrides.
-            build.onLoad({ filter: /\.(tsx?|jsx?)$/ }, (args) => {
-              const normalized = args.path.replace(/\\/g, "/")
-              if (!normalized.includes("/dashboard/src/")) return undefined
+      // Force re-optimisation so overrides are always applied
+      config.optimizeDeps.force = true
+    },
 
-              // Skip index/barrel files to preserve re-exports
-              const fileName = path.basename(args.path)
-              if (fileName.startsWith("index.")) return undefined
+    configureServer(server: ViteDevServer) {
+      if (!fs.existsSync(componentsDir)) return
 
-              const componentName = getComponentName(args.path)
-              if (componentName && overrides.has(componentName)) {
-                const overridePath = overrides.get(componentName)!
-                const ext = path.extname(overridePath).slice(1)
-                const loader = VALID_LOADERS[ext] || "tsx"
+      let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-                let contents: string
-                try {
-                  contents = fs.readFileSync(overridePath, "utf-8")
-                } catch {
-                  return undefined
-                }
-
-                if (process.env.NODE_ENV === "development") {
-                  console.log(
-                    `[custom-dashboard] Override: ${componentName} → ${overridePath}`
-                  )
-                }
-                return {
-                  contents,
-                  loader: loader as any,
-                  resolveDir: path.dirname(overridePath),
-                }
-              }
-              return undefined
-            })
-          },
-        })
-
-        // Force re-optimisation so overrides are always applied
-        config.optimizeDeps.force = true
+      /** Extract override-candidate name from a watched file, or null */
+      const extractName = (file: string): string | null => {
+        const normalized = file.replace(/\\/g, "/")
+        if (!normalized.startsWith(componentsDir.replace(/\\/g, "/"))) return null
+        const ext = path.extname(file)
+        if (!COMPONENT_EXT_SET.has(ext)) return null
+        const fileName = path.basename(file)
+        const name = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+        if (!name || name === "index") return null
+        return name
       }
+
+      /** Re-collect overrides from disk and restart the dev server */
+      const triggerRestart = (name: string, reason: string) => {
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          const newOverrides = new Map<string, string>()
+          const collectedFiles = collectComponentFiles(componentsDir).sort()
+          for (const fullPath of collectedFiles) {
+            const fn = path.basename(fullPath)
+            const n = fn.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+            if (n && n !== "index") {
+              newOverrides.set(n, fullPath)
+            }
+          }
+
+          overridesByName.clear()
+          for (const [k, v] of newOverrides) overridesByName.set(k, v)
+
+          console.log(
+            `[custom-dashboard] Override "${name}" ${reason} → restarting Vite...`
+          )
+          console.log(
+            `[custom-dashboard] overrides:`,
+            [...overridesByName.keys()]
+          )
+
+          server.restart()
+        }, 300)
+      }
+
+      server.watcher.add(componentsDir)
+
+      // ADD: new file — restart only if its name matches a known dashboard
+      // component (i.e. it could be a new override)
+      server.watcher.on("add", (file: string) => {
+        const name = extractName(file)
+        if (name && knownDashboardComponents.has(name)) {
+          triggerRestart(name, "created")
+        }
+      })
+
+      // CHANGE: file modified — restart only if it's an active override
+      // (was matched by esbuild during pre-bundling)
+      server.watcher.on("change", (file: string) => {
+        const name = extractName(file)
+        if (name && appliedOverrides.has(name)) {
+          triggerRestart(name, "modified")
+        }
+      })
+
+      // UNLINK: file deleted — restart only if it was an active override
+      server.watcher.on("unlink", (file: string) => {
+        const name = extractName(file)
+        if (name && appliedOverrides.has(name)) {
+          appliedOverrides.delete(name)
+          triggerRestart(name, "deleted")
+        }
+      })
     },
 
     resolveId(source) {
