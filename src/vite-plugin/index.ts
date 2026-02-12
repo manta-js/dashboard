@@ -5,17 +5,12 @@ import fs from "fs"
 const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
 
+// Unique prefix for override imports — esbuild marks these as external,
+// then Vite's resolveId resolves them to the actual file paths.
+const OVERRIDE_PREFIX = "__mantajs_override__:"
+
 const COMPONENT_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs"]
 const COMPONENT_EXT_SET = new Set(COMPONENT_EXTENSIONS)
-
-const VALID_LOADERS: Record<string, string> = {
-  tsx: "tsx",
-  ts: "ts",
-  jsx: "jsx",
-  js: "js",
-  mts: "ts",
-  mjs: "js",
-}
 
 /**
  * Recursively collect all component files from a directory tree.
@@ -90,41 +85,44 @@ function findDashboardSrc(): string | null {
  *
  * Handles:
  * 1. Menu config virtual module (virtual:dashboard/menu-config)
- * 2. Component overrides — any file in src/admin/components/ overrides the
- *    dashboard component with the same name.
+ * 2. Component overrides — any file in src/admin/components/ whose name
+ *    matches a dashboard component replaces it at build time.
+ *
+ * HMR Architecture:
+ * - Override files are NOT inlined into the esbuild pre-bundled chunk.
+ *   Instead, the chunk contains `export * from "/@fs/path/to/override.tsx"`,
+ *   keeping the override as a **separate Vite module**.
+ * - Because the override is a separate module exporting React components,
+ *   @vitejs/plugin-react adds React Fast Refresh boundaries
+ *   (import.meta.hot.accept). This makes the module self-accepting for HMR.
+ * - On MODIFICATION: Vite detects the file change, transforms it, and sends
+ *   an HMR update. React Fast Refresh swaps the component — no page reload.
+ * - On CREATION or DELETION: The esbuild pre-bundle must be rebuilt (the
+ *   chunk structure changes). We restart Vite + send a full-reload to the
+ *   browser so it picks up the new chunks automatically.
+ * - The fs.watch is independent from Vite's internal watcher, so it
+ *   survives server.restart() calls without losing events.
  */
 export function customDashboardPlugin(): Plugin {
   const componentsDir = path.resolve(process.cwd(), "src/admin/components")
   const overridesByName = new Map<string, string>()
 
-  // Track which overrides were actually matched during esbuild pre-bundling.
-  // Only these are real overrides — the rest are regular project components
-  // that happen to live in the same directory.
-  const appliedOverrides = new Set<string>()
-
-  // Scan dashboard source at startup to know all possible override targets.
-  // This lets the file watcher decide if a newly created file could be an
-  // override, without maintaining any hardcoded list.
-  const knownDashboardComponents = new Set<string>()
+  // Scan dashboard source once at startup — used to decide if a changed
+  // file is a potential override (~966 names, ~30 KB).
+  const dashboardComponents = new Set<string>()
   const dashboardSrc = findDashboardSrc()
   if (dashboardSrc) {
     for (const f of collectComponentFiles(dashboardSrc)) {
       const cName = getComponentName(f)
-      if (cName) knownDashboardComponents.add(cName)
+      if (cName) dashboardComponents.add(cName)
     }
   }
 
+  // Collect initial overrides from disk
   if (fs.existsSync(componentsDir)) {
-    const collectedFiles = collectComponentFiles(componentsDir).sort()
-    for (const fullPath of collectedFiles) {
-      const fileName = path.basename(fullPath)
-      const name = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+    for (const fullPath of collectComponentFiles(componentsDir).sort()) {
+      const name = path.basename(fullPath).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
       if (name && name !== "index") {
-        if (overridesByName.has(name) && process.env.NODE_ENV === "development") {
-          console.warn(
-            `[custom-dashboard] Duplicate override "${name}": ${overridesByName.get(name)} will be replaced by ${fullPath}`
-          )
-        }
         overridesByName.set(name, fullPath)
       }
     }
@@ -132,13 +130,20 @@ export function customDashboardPlugin(): Plugin {
 
   const hasOverrides = overridesByName.size > 0
 
+  // Mutable ref to the latest Vite server — updated on each configureServer
+  let currentServer: ViteDevServer | null = null
+  let watcherCreated = false
+
+  // Track known override file paths to distinguish modify vs create/delete
+  const knownOverrideFiles = new Set<string>(overridesByName.values())
+
   if (process.env.NODE_ENV === "development") {
     if (hasOverrides) {
       console.log("[custom-dashboard] overrides:", [...overridesByName.keys()])
     }
-    if (knownDashboardComponents.size > 0) {
+    if (dashboardComponents.size > 0) {
       console.log(
-        `[custom-dashboard] Scanned ${knownDashboardComponents.size} dashboard components for override matching`
+        `[custom-dashboard] Scanned ${dashboardComponents.size} dashboard components`
       )
     }
   }
@@ -148,14 +153,10 @@ export function customDashboardPlugin(): Plugin {
     enforce: "pre",
 
     config(config) {
-      // Always exclude the menu virtual module
       config.optimizeDeps = config.optimizeDeps || {}
       config.optimizeDeps.exclude = config.optimizeDeps.exclude || []
       config.optimizeDeps.exclude.push(MENU_VIRTUAL_ID)
 
-      // Always set up the esbuild override plugin — even if there are no
-      // overrides yet, the configureServer watcher may add some at runtime
-      // and trigger a restart.
       config.optimizeDeps.esbuildOptions = config.optimizeDeps.esbuildOptions || {}
       config.optimizeDeps.esbuildOptions.plugins =
         config.optimizeDeps.esbuildOptions.plugins || []
@@ -164,18 +165,21 @@ export function customDashboardPlugin(): Plugin {
       config.optimizeDeps.esbuildOptions.plugins.push({
         name: "dashboard-component-overrides",
         setup(build) {
-          // 1. Redirect the dist entry to source so esbuild processes
-          //    individual TSX files instead of one big pre-built bundle.
-          build.onLoad({ filter: /app\.(mjs|js)$/ }, (args) => {
-            // Only activate when there are overrides
-            if (overrides.size === 0) return undefined
+          // Mark override imports as external — this keeps override files as
+          // separate ES modules that Vite processes individually, enabling
+          // React Fast Refresh HMR instead of requiring a full page reload.
+          build.onResolve({ filter: /^__mantajs_override__:/ }, (args) => ({
+            path: args.path,
+            external: true,
+          }))
 
+          // Redirect dist entry → source so esbuild processes individual files
+          build.onLoad({ filter: /app\.(mjs|js)$/ }, (args) => {
+            if (overrides.size === 0) return undefined
             const normalized = args.path.replace(/\\/g, "/")
             if (!normalized.includes("/dashboard/dist/")) return undefined
 
-            const srcEntry = normalized
-              .replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
-
+            const srcEntry = normalized.replace(/\/dist\/app\.(mjs|js)$/, "/src/app.tsx")
             let contents: string
             try {
               contents = fs.readFileSync(srcEntry, "utf-8")
@@ -184,53 +188,34 @@ export function customDashboardPlugin(): Plugin {
             }
 
             if (process.env.NODE_ENV === "development") {
-              console.log(
-                `[custom-dashboard] Redirecting entry: ${args.path} → ${srcEntry}`
-              )
+              console.log(`[custom-dashboard] Redirecting entry → ${srcEntry}`)
             }
-            return {
-              contents,
-              loader: "tsx",
-              resolveDir: path.dirname(srcEntry),
-            }
+            return { contents, loader: "tsx", resolveDir: path.dirname(srcEntry) }
           })
 
-          // 2. Intercept individual source files to swap with overrides.
+          // For overridden components, emit a re-export from /@fs/ instead of
+          // inlining the file contents. The override becomes a separate Vite
+          // module with full HMR support via React Fast Refresh.
           build.onLoad({ filter: /\.(tsx?|jsx?)$/ }, (args) => {
             if (overrides.size === 0) return undefined
-
             const normalized = args.path.replace(/\\/g, "/")
             if (!normalized.includes("/dashboard/src/")) return undefined
 
-            // Skip index/barrel files to preserve re-exports
             const fileName = path.basename(args.path)
             if (fileName.startsWith("index.")) return undefined
 
             const componentName = getComponentName(args.path)
             if (componentName && overrides.has(componentName)) {
               const overridePath = overrides.get(componentName)!
-              const ext = path.extname(overridePath).slice(1)
-              const loader = VALID_LOADERS[ext] || "tsx"
-
-              let contents: string
-              try {
-                contents = fs.readFileSync(overridePath, "utf-8")
-              } catch {
-                return undefined
-              }
-
-              // Track this as a real applied override
-              appliedOverrides.add(componentName)
+              const normalizedPath = overridePath.replace(/\\/g, "/")
 
               if (process.env.NODE_ENV === "development") {
-                console.log(
-                  `[custom-dashboard] Override: ${componentName} → ${overridePath}`
-                )
+                console.log(`[custom-dashboard] Override: ${componentName} → ${overridePath}`)
               }
               return {
-                contents,
-                loader: loader as any,
-                resolveDir: path.dirname(overridePath),
+                contents: `export * from "${OVERRIDE_PREFIX}${normalizedPath}"`,
+                loader: "tsx",
+                resolveDir: path.dirname(args.path),
               }
             }
             return undefined
@@ -238,88 +223,148 @@ export function customDashboardPlugin(): Plugin {
         },
       })
 
-      // Force re-optimisation so overrides are always applied
+      // Include override state in esbuild define — this changes Vite's dep
+      // optimization hash (?v=xxx), forcing the browser to fetch fresh chunks
+      // whenever overrides are added or removed (prevents stale cache 404s).
+      config.optimizeDeps.esbuildOptions.define = {
+        ...config.optimizeDeps.esbuildOptions.define,
+        '__MANTAJS_OVERRIDES__': JSON.stringify(
+          [...overrides.keys()].sort().join(',')
+        ),
+      }
       config.optimizeDeps.force = true
     },
 
     configureServer(server: ViteDevServer) {
+      // Always update server ref (called again after each server.restart())
+      currentServer = server
+
       if (!fs.existsSync(componentsDir)) return
 
-      let debounceTimer: ReturnType<typeof setTimeout> | null = null
+      // Create ONE independent watcher that survives server.restart().
+      // Uses Node's fs.watch (FSEvents on macOS) — lightweight, no polling.
+      if (!watcherCreated) {
+        watcherCreated = true
+        let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
-      /** Extract override-candidate name from a watched file, or null */
-      const extractName = (file: string): string | null => {
-        const normalized = file.replace(/\\/g, "/")
-        if (!normalized.startsWith(componentsDir.replace(/\\/g, "/"))) return null
-        const ext = path.extname(file)
-        if (!COMPONENT_EXT_SET.has(ext)) return null
-        const fileName = path.basename(file)
-        const name = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
-        if (!name || name === "index") return null
-        return name
-      }
+        fs.watch(componentsDir, { recursive: true }, (_event, filename) => {
+          if (!filename) return
+          const ext = path.extname(filename)
+          if (!COMPONENT_EXT_SET.has(ext)) return
 
-      /** Re-collect overrides from disk and restart the dev server */
-      const triggerRestart = (name: string, reason: string) => {
-        if (debounceTimer) clearTimeout(debounceTimer)
-        debounceTimer = setTimeout(() => {
-          const newOverrides = new Map<string, string>()
-          const collectedFiles = collectComponentFiles(componentsDir).sort()
-          for (const fullPath of collectedFiles) {
-            const fn = path.basename(fullPath)
-            const n = fn.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
-            if (n && n !== "index") {
-              newOverrides.set(n, fullPath)
+          const name = path.basename(filename).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+          if (!name || name === "index") return
+
+          // Only act if this file name matches a dashboard component
+          if (!dashboardComponents.has(name)) return
+
+          const fullPath = path.resolve(componentsDir, filename)
+          const fileExists = fs.existsSync(fullPath)
+          const wasKnown = knownOverrideFiles.has(fullPath)
+
+          if (fileExists && wasKnown) {
+            // MODIFICATION — send HMR update ourselves. After server.restart(),
+            // Vite's internal chokidar may not fire for override files, so we
+            // handle it entirely from our independent fs.watch.
+            const mods = currentServer?.moduleGraph.getModulesByFile(fullPath)
+            if (mods && mods.size > 0) {
+              for (const mod of mods) {
+                currentServer!.moduleGraph.invalidateModule(mod)
+              }
+              currentServer!.ws.send({
+                type: "update",
+                updates: [...mods].map((mod) => ({
+                  type: "js-update" as const,
+                  path: mod.url,
+                  acceptedPath: mod.url,
+                  timestamp: Date.now(),
+                  explicitImportRequired: false,
+                })),
+              })
+              console.log(`[custom-dashboard] Override "${name}" modified → HMR`)
+            } else {
+              console.log(`[custom-dashboard] Override "${name}" not in graph → force-reload`)
+              currentServer?.ws.send({ type: "custom", event: "mantajs:force-reload" })
             }
+            return
           }
 
-          overridesByName.clear()
-          for (const [k, v] of newOverrides) overridesByName.set(k, v)
+          // CREATION or DELETION — the esbuild pre-bundle must be rebuilt
+          // because the chunk structure changes (new external ref or removed).
+          if (debounceTimer) clearTimeout(debounceTimer)
+          debounceTimer = setTimeout(async () => {
+            // Re-scan overrides from disk
+            overridesByName.clear()
+            knownOverrideFiles.clear()
+            for (const fp of collectComponentFiles(componentsDir).sort()) {
+              const n = path.basename(fp).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+              if (n && n !== "index") {
+                overridesByName.set(n, fp)
+                knownOverrideFiles.add(fp)
+              }
+            }
 
-          console.log(
-            `[custom-dashboard] Override "${name}" ${reason} → restarting Vite...`
-          )
-          console.log(
-            `[custom-dashboard] overrides:`,
-            [...overridesByName.keys()]
-          )
+            const action = fileExists ? "created" : "deleted"
+            console.log(`[custom-dashboard] Override "${name}" ${action} → restarting...`)
+            console.log(`[custom-dashboard] overrides:`, [...overridesByName.keys()])
 
-          server.restart()
-        }, 300)
+            // Vite preserves the WebSocket connection across restart() — the
+            // browser never disconnects. Await restart, then tell the client
+            // to do a cache-busting reload (location.reload() reuses cached
+            // modules; our custom event navigates to a timestamped URL instead).
+            try {
+              if (!currentServer) {
+                console.warn(`[custom-dashboard] No server available for restart`)
+                return
+              }
+              await currentServer.restart()
+              currentServer.ws.send({
+                type: "custom",
+                event: "mantajs:force-reload",
+              })
+              console.log(`[custom-dashboard] Force-reload sent to browser`)
+            } catch (e) {
+              console.error(`[custom-dashboard] Restart failed:`, e)
+            }
+          }, 300)
+        })
       }
+    },
 
-      server.watcher.add(componentsDir)
+    handleHotUpdate({ file }) {
+      // Suppress Vite's default HMR for override files — our fs.watch
+      // handles modifications (HMR) and deletions (restart) instead.
+      if (knownOverrideFiles.has(file)) {
+        return []
+      }
+    },
 
-      // ADD: new file — restart only if its name matches a known dashboard
-      // component (i.e. it could be a new override)
-      server.watcher.on("add", (file: string) => {
-        const name = extractName(file)
-        if (name && knownDashboardComponents.has(name)) {
-          triggerRestart(name, "created")
-        }
-      })
-
-      // CHANGE: file modified — restart only if it's an active override
-      // (was matched by esbuild during pre-bundling)
-      server.watcher.on("change", (file: string) => {
-        const name = extractName(file)
-        if (name && appliedOverrides.has(name)) {
-          triggerRestart(name, "modified")
-        }
-      })
-
-      // UNLINK: file deleted — restart only if it was an active override
-      server.watcher.on("unlink", (file: string) => {
-        const name = extractName(file)
-        if (name && appliedOverrides.has(name)) {
-          appliedOverrides.delete(name)
-          triggerRestart(name, "deleted")
-        }
-      })
+    transformIndexHtml(html) {
+      // Inject a client-side script that listens for our force-reload event.
+      // Unlike location.reload(), this navigates to a cache-busting URL so
+      // the browser re-fetches all modules (including pre-bundled chunks).
+      return html.replace(
+        "</head>",
+        `<script type="module">
+if (import.meta.hot) {
+  import.meta.hot.on("mantajs:force-reload", () => {
+    const url = new URL(location.href);
+    url.searchParams.set("_r", Date.now().toString());
+    location.replace(url.href);
+  });
+}
+</script>
+</head>`
+      )
     },
 
     resolveId(source) {
       if (source === MENU_VIRTUAL_ID) return MENU_RESOLVED_ID
+      // Resolve override imports to the actual file path — Vite then serves
+      // the file through its transform pipeline (including React Fast Refresh).
+      if (source.startsWith(OVERRIDE_PREFIX)) {
+        return source.slice(OVERRIDE_PREFIX.length)
+      }
       return null
     },
 

@@ -112,6 +112,16 @@ const OrderActivitySection = () => {
 export default OrderActivitySection
 ```
 
+**Developer experience (HMR):**
+
+| Action | Behavior | Details |
+|--------|----------|---------|
+| **Modify** an override | **HMR** (Hot Module Replacement) | The component is swapped in-place — no page reload, no React state loss. Instant feedback. |
+| **Create** a new override | **Automatic full reload** (~2-3s) | The Vite server restarts to rebuild the pre-bundle, then the browser reloads automatically. No manual refresh needed. |
+| **Delete** an override | **Automatic full reload** (~2-3s) | Same as creation — the original dashboard component is restored automatically. |
+
+Under the hood, override files are kept as **separate Vite modules** (not inlined into the pre-bundled chunk). This allows React Fast Refresh to handle modifications via standard HMR. Creation and deletion require a server restart because the esbuild chunk structure changes.
+
 **Important notes:**
 
 - Override files are discovered **recursively** in `src/admin/components/` and all its subdirectories.
@@ -142,6 +152,44 @@ your-project/
 - Children of the original route that you **don't redefine** are preserved. For example, overriding `/orders` keeps `/orders/:id` intact.
 
 This uses Medusa's `@medusajs/admin-vite-plugin` to discover routes in `src/admin/routes/`, combined with a custom merge function that ensures backward compatibility.
+
+**Route page example:**
+
+```tsx
+// src/admin/routes/orders/page.tsx
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+import { ShoppingCart } from "@medusajs/icons"
+import { Container, Heading } from "@medusajs/ui"
+
+const OrdersPage = () => {
+  return (
+    <Container>
+      <Heading level="h1">My Custom Orders Page</Heading>
+      {/* Your custom orders list */}
+    </Container>
+  )
+}
+
+export const config = defineRouteConfig({
+  label: "Orders",
+  icon: ShoppingCart,
+})
+
+export default OrdersPage
+```
+
+**Developer experience:**
+
+Route overrides use Medusa's standard admin extension system (`@medusajs/admin-vite-plugin`), which provides its own HMR. Modifying a route page triggers a standard Vite HMR update — the page refreshes instantly without a full reload.
+
+**Component overrides vs Route overrides — when to use which:**
+
+| Use case | Approach |
+|----------|----------|
+| Replace a **full page** (e.g., the orders list) | Route override (`src/admin/routes/orders/page.tsx`) |
+| Replace a **section** inside a page (e.g., the customer info block in order detail) | Component override (`src/admin/components/order-customer-section.tsx`) |
+| Add a **new page** that doesn't exist in the dashboard | Route override (`src/admin/routes/my-page/page.tsx`) |
+| Tweak a **reusable UI element** used across multiple pages | Component override |
 
 ### 3. Custom Menu Configuration
 
