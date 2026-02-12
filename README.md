@@ -2,22 +2,53 @@
 
 A customizable fork of `@medusajs/dashboard` that lets you **override components**, **override routes**, and **define your own sidebar menu** — without modifying the original dashboard source code.
 
-Drop-in replacement for `@medusajs/dashboard` via yarn/npm resolutions.
+Drop-in replacement for `@medusajs/dashboard` via package manager resolutions/overrides.
 
 ## Installation
 
 ```bash
+# Yarn
 yarn add @mantajs/dashboard
+
+# npm
+npm install @mantajs/dashboard
+
+# pnpm
+pnpm add @mantajs/dashboard
 ```
 
 ### Using as a dashboard replacement
 
-In your Medusa backend's `package.json`, add a resolution to swap `@medusajs/dashboard`:
+In your Medusa backend's `package.json`, add a resolution/override to swap `@medusajs/dashboard` with `@mantajs/dashboard`. The syntax depends on your package manager:
+
+#### Yarn (v1 & v4+)
 
 ```json
 {
   "resolutions": {
     "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+  }
+}
+```
+
+#### npm (v8.3+)
+
+```json
+{
+  "overrides": {
+    "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+  }
+}
+```
+
+#### pnpm
+
+```json
+{
+  "pnpm": {
+    "overrides": {
+      "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+    }
   }
 }
 ```
@@ -44,42 +75,48 @@ Run `medusa build` (or `medusa develop`) and the custom dashboard will be compil
 
 ### 1. Component Overrides
 
-Replace any dashboard component by placing a file with the **same name** in your project's `src/admin/components/` directory.
+Replace any dashboard component by placing a file with the **same name** in your project's `src/admin/components/` directory. The plugin **recursively scans** the entire `components/` tree, so you can organize overrides in subdirectories.
 
 ```
 your-project/
 └── src/
     └── admin/
         └── components/
-            └── product-general-section.tsx   ← overrides the dashboard's ProductGeneralSection
+            ├── product-general-section.tsx          ← flat override (works)
+            ├── orders/
+            │   └── order-activity-section.tsx        ← nested override (works too)
+            └── forms/
+                └── shipping-address-form.tsx         ← deeply nested (works too)
 ```
 
 **How it works:**
 
 During Vite's pre-bundling phase, the plugin redirects the dashboard's `dist/app.mjs` entry to source files. It then intercepts individual source file loads and swaps any component whose filename matches one of your overrides.
 
-Matching is done by **file name** (without extension). For example:
+Matching is done by **file name** (without extension), regardless of subdirectory depth. For example:
 
 | Your file | Overrides |
 |-----------|-----------|
 | `product-general-section.tsx` | `src/routes/products/.../product-general-section.tsx` |
-| `order-list.tsx` | `src/routes/orders/order-list/order-list.tsx` |
-| `main-layout.tsx` | `src/components/layout/main-layout/main-layout.tsx` |
+| `orders/order-list.tsx` | `src/routes/orders/order-list/order-list.tsx` |
+| `layout/main-layout.tsx` | `src/components/layout/main-layout/main-layout.tsx` |
 
 Your override component must export a `default` export:
 
 ```tsx
-// src/admin/components/product-general-section.tsx
-const ProductGeneralSection = () => {
-  return <div>My custom product section</div>
+// src/admin/components/orders/order-activity-section.tsx
+const OrderActivitySection = () => {
+  return <div>My custom order activity section</div>
 }
 
-export default ProductGeneralSection
+export default OrderActivitySection
 ```
 
 **Important notes:**
 
-- Only **file-level** overrides are supported (not directory-level). Place files directly in `src/admin/components/`.
+- Override files are discovered **recursively** in `src/admin/components/` and all its subdirectories.
+- Matching is based on **file name only** — the subdirectory structure is for your own organization and does not affect matching.
+- If two files in different subdirectories share the same name, the plugin logs a warning in development and uses the one that comes last alphabetically by full path.
 - Index/barrel files (`index.ts`) are never overridden to preserve re-exports.
 - The plugin forces Vite to re-optimize dependencies when overrides are present, so changes are always picked up.
 

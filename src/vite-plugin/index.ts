@@ -6,6 +6,7 @@ const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
 
 const COMPONENT_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs"]
+const COMPONENT_EXT_SET = new Set(COMPONENT_EXTENSIONS)
 
 const VALID_LOADERS: Record<string, string> = {
   tsx: "tsx",
@@ -14,6 +15,35 @@ const VALID_LOADERS: Record<string, string> = {
   js: "js",
   mts: "ts",
   mjs: "js",
+}
+
+/**
+ * Recursively collect all component files from a directory tree.
+ * Includes a depth guard to prevent symlink loops and skips hidden
+ * entries / node_modules.
+ */
+function collectComponentFiles(dir: string, depth = 0): string[] {
+  if (depth > 20) return []
+  const results: string[] = []
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return results
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith(".") || entry.name === "node_modules") continue
+    const fullPath = path.resolve(dir, entry.name)
+    if (entry.isDirectory()) {
+      results.push(...collectComponentFiles(fullPath, depth + 1))
+    } else if (entry.isFile()) {
+      const ext = path.extname(entry.name)
+      if (COMPONENT_EXT_SET.has(ext)) {
+        results.push(fullPath)
+      }
+    }
+  }
+  return results
 }
 
 /**
@@ -51,15 +81,16 @@ export function customDashboardPlugin(): Plugin {
   const overridesByName = new Map<string, string>()
 
   if (fs.existsSync(componentsDir)) {
-    for (const file of fs.readdirSync(componentsDir)) {
-      const fullPath = path.resolve(componentsDir, file)
-      try {
-        if (!fs.statSync(fullPath).isFile()) continue
-      } catch {
-        continue
-      }
-      const name = file.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
-      if (name) {
+    const collectedFiles = collectComponentFiles(componentsDir).sort()
+    for (const fullPath of collectedFiles) {
+      const fileName = path.basename(fullPath)
+      const name = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+      if (name && name !== "index") {
+        if (overridesByName.has(name) && process.env.NODE_ENV === "development") {
+          console.warn(
+            `[custom-dashboard] Duplicate override "${name}": ${overridesByName.get(name)} will be replaced by ${fullPath}`
+          )
+        }
         overridesByName.set(name, fullPath)
       }
     }

@@ -1,11 +1,23 @@
 {
   "name": "@mantajs/dashboard",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "description": "B2B Admin Dashboard for Medusa - Fork of @medusajs/dashboard",
   "license": "MIT",
+  "author": {
+    "name": "Olivier Belaud",
+    "url": "https://github.com/OlivierBelaud"
+  },
+  "homepage": "https://github.com/manta-js/dashboard#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aspect-build/mantajs"
+    "url": "https://github.com/manta-js/dashboard"
+  },
+  "bugs": {
+    "url": "https://github.com/manta-js/dashboard/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   },
   "keywords": [
     "medusa",
