@@ -205,6 +205,92 @@ import type { MenuConfig, MenuItem, MenuNestedItem } from "@mantajs/dashboard/vi
 
 When no `menu.config.ts` is found, the dashboard falls back to its built-in sidebar menu.
 
+### Menu, Nested Routes, and Modules: How They Interact
+
+Understanding how the sidebar menu is built is critical to avoid duplicate or missing entries. There are **three sources** that can add items to the sidebar:
+
+1. **Your `menu.config.tsx`** — the custom menu you define
+2. **Route configs with `nested`** — pages that declare `nested: "/parent"` in `defineRouteConfig()`
+3. **Plugin modules** — modules like `@medusajs/draft-order` that register their own routes and menu entries
+
+#### How `nested` works
+
+When a route page exports a config with `nested`, Medusa **automatically injects** it as a sub-item under the specified parent in the sidebar:
+
+```tsx
+// src/admin/routes/draft-orders/page.tsx
+export const config = defineRouteConfig({
+  label: "Drafts",
+  nested: "/orders",   // ← auto-injected under Orders in the sidebar
+})
+```
+
+This happens **regardless** of your `menu.config.tsx`. Even if you define a custom menu, any route with `nested` will still be injected as a child of its parent entry.
+
+**To prevent a route from appearing in the sidebar**, remove the `nested` property:
+
+```tsx
+export const config = defineRouteConfig({
+  label: "Drafts Test",
+  // no `nested` → not auto-injected in the menu
+})
+```
+
+The page remains accessible via its URL (`/app/draft-orders`) but won't appear in the sidebar unless you explicitly add it to your menu config.
+
+#### Controlling sub-items via `menu.config.tsx`
+
+If you want full control over which sub-items appear under a menu entry, define them explicitly in `items`:
+
+```tsx
+{
+  icon: <ShoppingCart />,
+  label: "orders.domain",
+  useTranslation: true,
+  to: "/orders",
+  items: [
+    { label: "Draft Orders", to: "/draft-orders" },
+  ],
+}
+```
+
+**Important:** Nested routes (`nested: "/orders"`) are still injected even if you define `items` manually. To avoid duplicates, either:
+- Remove `nested` from the route config, **or**
+- Don't list the route in `items` (let `nested` handle it)
+
+Never do both — you'll get a duplicate entry.
+
+#### Plugin modules and the Extensions section
+
+Medusa plugin modules (e.g., `@medusajs/draft-order`) register their own sidebar entries. By default, these appear in the **Extensions** section at the bottom of the sidebar.
+
+When you include a module's route in your `menu.config.tsx`, the module's entry is **absorbed** into your custom menu and no longer appears separately in Extensions:
+
+```tsx
+// Including /draft-orders in the custom menu prevents it from
+// appearing again under Extensions
+{
+  icon: <ShoppingCart />,
+  label: "Orders",
+  to: "/orders",
+  items: [
+    { label: "Draft Orders", to: "/draft-orders" },  // ← module route
+  ],
+}
+```
+
+If you **don't** include a module's route in your menu config, it will appear in the Extensions section as usual.
+
+#### Summary
+
+| Scenario | Result |
+|----------|--------|
+| Route has `nested: "/orders"` | Auto-injected under Orders in sidebar |
+| Route has no `nested` | Not in sidebar (unless in `menu.config.tsx`) |
+| Module route listed in `menu.config.tsx` | Appears in your menu, not in Extensions |
+| Module route **not** in `menu.config.tsx` | Appears in Extensions section |
+| Route has `nested` **and** listed in `items` | Duplicate entry (avoid this!) |
+
 ## Exports
 
 | Import | Description |
