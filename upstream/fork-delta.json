@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "package": "@medusajs/dashboard",
+    "version": "2.16.0"
+  },
+  "entries": [
+    {
+      "path": "src/app.tsx",
+      "kind": "modified",
+      "surface": "extension precedence",
+      "rationale": "Load consumer plugins before the package-local plugin so intentional consumer extensions win deterministic conflicts.",
+      "evidence": ["scripts/fork-behavior.spec.tsx"]
+    },
+    {
+      "path": "src/components/layout/main-layout/main-layout.tsx",
+      "kind": "modified",
+      "surface": "extension navigation and routes",
+      "rationale": "Merge virtual dashboard menu configuration and extension routes while de-duplicating navigation entries.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs", "src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/__tests__/sort-menu-items-by-rank.spec.ts",
+      "kind": "modified",
+      "surface": "menu ordering regression coverage",
+      "rationale": "Prove menu sorting does not mutate extension-owned input arrays.",
+      "evidence": ["src/dashboard-app/__tests__/sort-menu-items-by-rank.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/forms/hooks.tsx",
+      "kind": "modified",
+      "surface": "form defaults",
+      "rationale": "Avoid mutating caller-owned default values when form defaults are combined.",
+      "evidence": ["scripts/fork-behavior.spec.tsx"]
+    },
+    {
+      "path": "src/dashboard-app/links/utils.ts",
+      "kind": "modified",
+      "surface": "linked-resource queries",
+      "rationale": "Exclude empty linked query fields before generating resource links.",
+      "evidence": ["scripts/fork-behavior.spec.tsx"]
+    },
+    {
+      "path": "src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts",
+      "kind": "added",
+      "surface": "extension route regression coverage",
+      "rationale": "Prove extension pages can replace matching core pages without dropping unmatched core children.",
+      "evidence": ["src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/routes/get-route.map.tsx",
+      "kind": "modified",
+      "surface": "extension route discovery",
+      "rationale": "Build the extension route map through the fork-owned merge contract.",
+      "evidence": ["src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/routes/merge-extension-routes.ts",
+      "kind": "added",
+      "surface": "extension route merging",
+      "rationale": "Provide deterministic recursive replacement of matching route pages while retaining unrelated core routes.",
+      "evidence": ["src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/routes/utils.ts",
+      "kind": "modified",
+      "surface": "route metadata",
+      "rationale": "Preserve route handles when converting leaf route definitions.",
+      "evidence": ["src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
+    },
+    {
+      "path": "src/dashboard-app/utils/sort-menu-items-by-rank.ts",
+      "kind": "modified",
+      "surface": "menu ordering",
+      "rationale": "Sort a copy so dashboard assembly cannot mutate extension-owned menu inputs.",
+      "evidence": ["src/dashboard-app/__tests__/sort-menu-items-by-rank.spec.ts"]
+    },
+    {
+      "path": "src/hooks/use-combobox-data.tsx",
+      "kind": "modified",
+      "surface": "source hygiene",
+      "rationale": "Remove one upstream trailing space so repository-wide whitespace validation remains clean; this is an intentionally low-maintenance formatting delta.",
+      "evidence": ["scripts/verify-upstream-delta.mjs"]
+    },
+    {
+      "path": "src/i18n/translations/ru.json",
+      "kind": "modified",
+      "surface": "translation integrity",
+      "rationale": "Remove an upstream duplicate JSON key so translation validation is unambiguous.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs"]
+    },
+    {
+      "path": "src/index.css",
+      "kind": "modified",
+      "surface": "workflow grid styling",
+      "rationale": "Correct the workflow grid class typo, use the valid background-repeat property, and remove the duplicated malformed rule.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs"]
+    },
+    {
+      "path": "src/lib/permissions/types.ts",
+      "kind": "modified",
+      "surface": "source hygiene",
+      "rationale": "Remove the upstream terminal blank line so repository-wide whitespace validation remains clean; this is an intentionally low-maintenance formatting delta.",
+      "evidence": ["scripts/verify-upstream-delta.mjs"]
+    },
+    {
+      "path": "src/routes/orders/order-detail/components/order-summary-section/order-summary-section.tsx",
+      "kind": "modified",
+      "surface": "public Medusa type boundary",
+      "rationale": "Import AdminReservation from the public @medusajs/types API instead of an unstable deep source path.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs"]
+    },
+    {
+      "path": "src/types/virtual-dashboard.d.ts",
+      "kind": "added",
+      "surface": "virtual menu configuration module",
+      "rationale": "Type the virtual menu configuration module consumed by the dashboard layout.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs"]
+    },
+    {
+      "path": "src/vite-env.d.ts",
+      "kind": "modified",
+      "surface": "Vite environment typing",
+      "rationale": "Match the backend variable name and expose the base URL and project variables consumed by this package's Vite configuration.",
+      "evidence": ["scripts/verify-upstream-delta.node.mjs"]
+    },
+    {
+      "path": "src/vite-plugin/component-path-matching.ts",
+      "kind": "added",
+      "surface": "component override extension allowlist",
+      "rationale": "Centralize the script-module extensions accepted when explicit override and target declarations are validated.",
+      "evidence": ["src/vite-plugin/__tests__/override-policy.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/index.ts",
+      "kind": "added",
+      "surface": "packaged Vite extension API",
+      "rationale": "Expose the fork-owned Vite plugin with explicit override policy, diagnostics, and lifecycle handling.",
+      "evidence": ["src/vite-plugin/__tests__/override-lifecycle.spec.ts", "src/vite-plugin/__tests__/override-policy.spec.ts", "src/vite-plugin/__tests__/override-diagnostics.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/override-diagnostics.ts",
+      "kind": "added",
+      "surface": "component override diagnostics",
+      "rationale": "Emit versioned, redacted, machine-readable decisions for all override lifecycle decisions.",
+      "evidence": ["src/vite-plugin/__tests__/override-diagnostics.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/override-policy.ts",
+      "kind": "added",
+      "surface": "component override policy",
+      "rationale": "Validate exact override declarations fail-closed before any module replacement is authorized.",
+      "evidence": ["src/vite-plugin/__tests__/override-policy.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/types.ts",
+      "kind": "added",
+      "surface": "component override public types",
+      "rationale": "Define the public override configuration and diagnostic snapshot contracts.",
+      "evidence": ["src/vite-plugin/__tests__/override-diagnostics.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/__tests__/override-diagnostics.spec.ts",
+      "kind": "added",
+      "surface": "override diagnostic regression coverage",
+      "rationale": "Prove diagnostic state transitions, redaction, and snapshot isolation.",
+      "evidence": ["src/vite-plugin/__tests__/override-diagnostics.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/__tests__/override-lifecycle.spec.ts",
+      "kind": "added",
+      "surface": "override lifecycle regression coverage",
+      "rationale": "Prove exact-path HMR invalidation and explicit failure when a declared override disappears.",
+      "evidence": ["src/vite-plugin/__tests__/override-lifecycle.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/__tests__/override-policy.spec.ts",
+      "kind": "added",
+      "surface": "override policy regression coverage",
+      "rationale": "Prove undeclared files never authorize replacement and invalid declarations fail closed.",
+      "evidence": ["src/vite-plugin/__tests__/override-policy.spec.ts"]
+    }
+  ]
+}

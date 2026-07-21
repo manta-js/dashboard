@@ -38,7 +38,9 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:package": "node ./scripts/verify-package-contract.mjs",
     "test:consumer": "node ./scripts/verify-packed-consumer.mjs",
-    "verify": "yarn typecheck && yarn test && yarn build && yarn test:package && yarn test:consumer && yarn i18n:validate && yarn build:preview && yarn audit --groups dependencies --level moderate",
+    "test:upstream": "node --test ./scripts/verify-upstream-delta.node.mjs",
+    "verify:upstream": "node ./scripts/verify-upstream-delta.mjs",
+    "verify": "yarn typecheck && yarn test && yarn test:upstream && yarn build && yarn test:package && yarn test:consumer && yarn verify:upstream && yarn i18n:validate && yarn build:preview && yarn audit --groups dependencies --level moderate",
     "i18n:validate": "node ./scripts/i18n/validate-translation.js en.json",
     "i18n:schema": "node ./scripts/i18n/generate-schema.js"
   },
