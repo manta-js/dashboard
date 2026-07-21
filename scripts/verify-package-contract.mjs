@@ -7,6 +7,12 @@ const root = resolve(import.meta.dirname, "..")
 const packageJson = JSON.parse(
   await readFile(resolve(root, "package.json"), "utf8")
 )
+const transition = JSON.parse(
+  await readFile(
+    resolve(root, "release/medusa-dashboard-transition.json"),
+    "utf8"
+  )
+)
 
 const expectedExports = {
   ".": ["types", "import", "require"],
@@ -18,8 +24,34 @@ const expectedExports = {
   "./package.json": null,
 }
 
+assert.equal(packageJson.name, "@mantajs/medusa-dashboard")
 assert.match(packageJson.version, /^\d+\.\d+\.\d+-medusa\.\d+$/)
 assert.equal(packageJson.publishConfig?.tag, "medusa")
+assert.equal(transition.to?.package, packageJson.name)
+assert.equal(transition.to?.version, packageJson.version)
+assert.equal(transition.from?.package, "@mantajs/dashboard")
+assert.equal(transition.from?.version, "0.1.18-medusa.0")
+assert.equal(transition.authorization?.owner, "OLI-405")
+assert.ok(
+  ["awaiting-oli-405", "authorized-after-oli-405"].includes(
+    transition.state
+  ),
+  "unknown package transition state"
+)
+if (transition.state === "awaiting-oli-405") {
+  assert.equal(transition.authorization?.authorized, false)
+  assert.equal(transition.authorization?.evidence, null)
+} else {
+  assert.equal(transition.authorization?.authorized, true)
+  assert.match(
+    transition.authorization?.evidence?.pullRequest || "",
+    /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/
+  )
+  assert.match(
+    transition.authorization?.evidence?.mergeCommit || "",
+    /^[0-9a-f]{40}$/
+  )
+}
 
 for (const [subpath, conditions] of Object.entries(expectedExports)) {
   assert.ok(packageJson.exports[subpath], `missing export ${subpath}`)

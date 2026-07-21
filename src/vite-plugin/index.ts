@@ -19,7 +19,9 @@ function findDashboardSrc(): string | null {
   const cwd = process.cwd()
   const candidates = [
     path.join(cwd, "node_modules", "@medusajs", "dashboard", "src"),
+    path.join(cwd, "node_modules", "@mantajs", "medusa-dashboard", "src"),
     path.join(cwd, "node_modules", "@mantajs", "dashboard", "src"),
+    path.join(cwd, ".yalc", "@mantajs", "medusa-dashboard", "src"),
     path.join(cwd, ".yalc", "@mantajs", "dashboard", "src"),
   ]
   for (const dir of candidates) {
@@ -29,7 +31,7 @@ function findDashboardSrc(): string | null {
 }
 
 /**
- * Vite plugin for @mantajs/dashboard — explicit unbundled overrides.
+ * Vite plugin for @mantajs/medusa-dashboard — explicit unbundled overrides.
  *
  * Dashboard excluded from pre-bundling → components served on-demand.
  * Overrides resolve directly to the override file (no virtual proxy).
@@ -142,13 +144,16 @@ export function customDashboardPlugin(
 
       // Exclude dashboard from pre-bundling → on-demand serving.
       config.optimizeDeps.exclude.push("@medusajs/dashboard")
+      config.optimizeDeps.exclude.push("@mantajs/medusa-dashboard")
       config.optimizeDeps.exclude.push("@mantajs/dashboard")
 
       // Medusa puts dashboard in include. include beats exclude in Vite.
       if (config.optimizeDeps.include) {
         config.optimizeDeps.include = config.optimizeDeps.include.filter(
           (dep) =>
-            dep !== "@medusajs/dashboard" && dep !== "@mantajs/dashboard"
+            dep !== "@medusajs/dashboard" &&
+            dep !== "@mantajs/medusa-dashboard" &&
+            dep !== "@mantajs/dashboard"
         )
       }
 
