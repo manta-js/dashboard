@@ -42,4 +42,3 @@ export function sortMenuItemsByRank(
     return item
   })
 }
-
