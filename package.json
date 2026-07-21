@@ -1,5 +1,5 @@
 {
-  "name": "@mantajs/dashboard",
+  "name": "@mantajs/medusa-dashboard",
   "version": "0.1.18-medusa.0",
   "description": "B2B Admin Dashboard for Medusa - Fork of @medusajs/dashboard",
   "license": "MIT",
@@ -38,7 +38,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:package": "node ./scripts/verify-package-contract.mjs",
     "test:consumer": "node ./scripts/verify-packed-consumer.mjs",
-    "verify": "yarn typecheck && yarn test && yarn build && yarn test:package && yarn test:consumer && yarn i18n:validate && yarn build:preview && yarn audit --groups dependencies --level moderate",
+    "test:upstream": "node --test ./scripts/verify-upstream-delta.node.mjs",
+    "test:release-guards": "node --test ./scripts/release-guards.node.mjs",
+    "verify:upstream": "node ./scripts/verify-upstream-delta.mjs",
+    "verify": "yarn typecheck && yarn test && yarn test:upstream && yarn test:release-guards && yarn build && yarn test:package && yarn test:consumer && yarn verify:upstream && yarn i18n:validate && yarn build:preview && yarn audit --groups dependencies --level moderate",
     "i18n:validate": "node ./scripts/i18n/validate-translation.js en.json",
     "i18n:schema": "node ./scripts/i18n/generate-schema.js"
   },

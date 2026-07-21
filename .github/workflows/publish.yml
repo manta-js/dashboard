@@ -6,6 +6,7 @@ on:
 
 jobs:
   publish:
+    environment: npm-medusa-dashboard
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,8 +33,7 @@ jobs:
 
       - name: Verify release tag and branch
         run: |
-          node ./scripts/verify-release-tag.mjs
           git fetch --no-tags origin main:refs/remotes/origin/main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          node ./scripts/verify-release-tag.mjs
 
       - run: npm publish --tag medusa --provenance --access public

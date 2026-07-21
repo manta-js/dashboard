@@ -1,34 +1,95 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import {
+  cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 
 const root = resolve(import.meta.dirname, "..")
-const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"))
-// B2B currently consumes the package through Yarn 4's node-modules linker.
-const B2B_YARN_VERSION = "4.12.0"
+const rootPackage = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8")
+)
+const YARN_VERSION = "4.12.0"
 const temporaryRoot = mkdtempSync(join(tmpdir(), "mantajs-dashboard-consumer-"))
 const packageDirectory = join(temporaryRoot, "package")
 const consumerDirectory = join(temporaryRoot, "consumer")
+const fixtureDirectory = join(root, "fixtures/packed-consumer")
 const childEnvironment = {
   ...process.env,
   CI: "1",
   COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
-  // The disposable consumer intentionally starts without a lockfile. Its first
-  // install must be allowed to create one even when the parent CI is immutable.
   YARN_ENABLE_IMMUTABLE_INSTALLS: "false",
 }
 
+const listFiles = (directory) =>
+  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(directory, entry.name)
+    return entry.isDirectory() ? listFiles(path) : [path]
+  })
+
+const assertPublicConsumerImports = () => {
+  const sourceFiles = listFiles(fixtureDirectory).filter((file) =>
+    /\.(?:[cm]?[jt]s|tsx)$/.test(file)
+  )
+  const source = sourceFiles
+    .map(
+      (file) =>
+        `${relative(fixtureDirectory, file)}\n${readFileSync(file, "utf8")}`
+    )
+    .join("\n")
+
+  assert.doesNotMatch(
+    source,
+    /(?:from\s+|import\s*\(|require\s*\()["'](?:@mantajs\/medusa-dashboard|@medusajs\/dashboard)\/(?:src|dist)\//,
+    "consumer fixtures must not import package internals"
+  )
+  assert.doesNotMatch(
+    source,
+    /(?:component-path-matching|production-component-override|resolveDashboardComponent|\bresolveId\s*\([^)]*\)\s*\{|\bresolveId\s*:\s*(?:async\s*)?\()/,
+    "consumer fixtures must not contain a second override resolver"
+  )
+  const allowedPackageReferences = new Set([
+    "@mantajs/medusa-dashboard",
+    "@mantajs/medusa-dashboard/components",
+    "@mantajs/medusa-dashboard/css",
+    "@mantajs/medusa-dashboard/hooks",
+    "@mantajs/medusa-dashboard/package.json",
+    "@mantajs/medusa-dashboard/vite-plugin",
+    "@medusajs/dashboard",
+    "@medusajs/dashboard/components",
+    "@medusajs/dashboard/css",
+    "@medusajs/dashboard/hooks",
+    "@medusajs/dashboard/package.json",
+    "@medusajs/dashboard/vite-plugin",
+  ])
+  for (const match of source.matchAll(
+    /["'`](@mantajs\/medusa-dashboard(?:\/[\w./-]+)?|@medusajs\/dashboard(?:\/[\w./-]+)?)["'`]/g
+  )) {
+    assert.ok(
+      allowedPackageReferences.has(match[1]),
+      `consumer fixture references undeclared package subpath ${match[1]}`
+    )
+  }
+  assert.equal(
+    (source.match(/customDashboardPlugin\s*\(/g) || []).length,
+    1,
+    "consumer fixtures must define exactly one customDashboardPlugin mechanism"
+  )
+}
+
 try {
+  assertPublicConsumerImports()
   mkdirSync(packageDirectory)
-  mkdirSync(consumerDirectory)
+  cpSync(fixtureDirectory, consumerDirectory, { recursive: true })
 
   const [packedPackage] = JSON.parse(
     execFileSync(
@@ -37,141 +98,160 @@ try {
       { cwd: root, encoding: "utf8", env: childEnvironment }
     )
   )
-
   const packedFiles = packedPackage.files.map(({ path }) => path)
   const tarball = join(packageDirectory, packedPackage.filename)
 
-  assert.ok(packedFiles.includes("dist/components.mjs"))
-  assert.ok(packedFiles.includes("dist/components.d.ts"))
-  assert.ok(packedFiles.includes("dist/vite-plugin/index.mjs"))
-  assert.ok(packedFiles.includes("src/app.tsx"))
-  assert.ok(packedFiles.includes("src/vite-plugin/index.ts"))
+  assert.equal(packedPackage.name, "@mantajs/medusa-dashboard")
+  for (const file of [
+    "dist/app.js",
+    "dist/app.mjs",
+    "dist/app.css",
+    "dist/index.d.ts",
+    "dist/components.js",
+    "dist/components.mjs",
+    "dist/components.d.ts",
+    "dist/hooks.js",
+    "dist/hooks.mjs",
+    "dist/hooks.d.ts",
+    "dist/vite-plugin/index.js",
+    "dist/vite-plugin/index.mjs",
+    "dist/vite-plugin/index.d.ts",
+  ]) {
+    assert.ok(packedFiles.includes(file), `packed candidate is missing ${file}`)
+  }
 
+  const consumerPackage = JSON.parse(
+    readFileSync(join(consumerDirectory, "package.json"), "utf8")
+  )
+  consumerPackage.packageManager = `yarn@${YARN_VERSION}`
+  consumerPackage.dependencies["@mantajs/medusa-dashboard"] = `file:${tarball}`
+  consumerPackage.dependencies["@medusajs/dashboard"] = "2.16.0"
+  consumerPackage.devDependencies = {
+    "@types/node": rootPackage.devDependencies["@types/node"],
+    "@types/react": rootPackage.devDependencies["@types/react"],
+    typescript: rootPackage.devDependencies.typescript,
+    vite: rootPackage.peerDependencies.vite,
+  }
+  consumerPackage.resolutions = {
+    "@medusajs/dashboard": `file:${tarball}`,
+  }
   writeFileSync(
     join(consumerDirectory, "package.json"),
-    JSON.stringify(
-      {
-        private: true,
-        packageManager: `yarn@${B2B_YARN_VERSION}`,
-        dependencies: {
-          "@medusajs/dashboard": "2.16.0",
-        },
-        devDependencies: {
-          "@types/node": rootPackage.devDependencies["@types/node"],
-          "@types/react": rootPackage.devDependencies["@types/react"],
-          typescript: rootPackage.devDependencies.typescript,
-          vite: rootPackage.peerDependencies.vite,
-        },
-        resolutions: {
-          "@medusajs/dashboard": `file:${tarball}`,
-        },
-      },
-      null,
-      2
-    )
+    `${JSON.stringify(consumerPackage, null, 2)}\n`
   )
-  writeFileSync(join(consumerDirectory, ".yarnrc.yml"), "nodeLinker: node-modules\n")
-  writeFileSync(
-    join(consumerDirectory, "contract.ts"),
-    [
-      'import Dashboard, { type DashboardPlugin } from "@medusajs/dashboard"',
-      'import { LayoutComposer } from "@medusajs/dashboard/components"',
-      'import { customDashboardPlugin } from "@medusajs/dashboard/vite-plugin"',
-      "const dashboard: typeof Dashboard = Dashboard",
-      "const plugin: DashboardPlugin | undefined = undefined",
-      "const composer: typeof LayoutComposer = LayoutComposer",
-      "void dashboard",
-      "void plugin",
-      "void composer",
-      "customDashboardPlugin()",
-    ].join("\n")
-  )
-  writeFileSync(
-    join(consumerDirectory, "tsconfig.json"),
-    JSON.stringify(
-      {
-        compilerOptions: {
-          jsx: "react-jsx",
-          lib: ["ESNext", "DOM"],
-          module: "ESNext",
-          moduleResolution: "Bundler",
-          noEmit: true,
-          skipLibCheck: false,
-          strict: true,
-          target: "ES2022",
-        },
-        include: ["contract.ts"],
-      },
-      null,
-      2
-    )
-  )
+
   execFileSync("corepack", ["yarn", "install"], {
     cwd: consumerDirectory,
     stdio: "inherit",
     env: childEnvironment,
   })
 
-  const proof = execFileSync(
-    "corepack",
-    [
-      "yarn",
-      "node",
-      "--input-type=module",
-      "--eval",
-      [
-        'import { LayoutComposer } from "@medusajs/dashboard/components"',
-        'import { customDashboardPlugin } from "@medusajs/dashboard/vite-plugin"',
-        'import packageJson from "@medusajs/dashboard/package.json" with { type: "json" }',
-        'const rootUrl = import.meta.resolve("@medusajs/dashboard")',
-        'const cssUrl = import.meta.resolve("@medusajs/dashboard/css")',
-        'const hooksUrl = import.meta.resolve("@medusajs/dashboard/hooks")',
-        'const dashboardVitePlugin = customDashboardPlugin()',
-        'const viteConfig = {}',
-        'dashboardVitePlugin.config(viteConfig)',
-        'if (typeof LayoutComposer !== "function") throw new Error("LayoutComposer missing")',
-        'if (typeof customDashboardPlugin !== "function") throw new Error("vite plugin missing")',
-        'if (packageJson.name !== "@mantajs/dashboard") throw new Error("alias did not install Manta")',
-        `if (packageJson.version !== ${JSON.stringify(rootPackage.version)}) throw new Error(\`version mismatch: \${packageJson.version}\`)`,
-        'if (dashboardVitePlugin.name !== "custom-dashboard") throw new Error("plugin instance mismatch")',
-        'if (!viteConfig.optimizeDeps?.entries?.some((entry) => entry.endsWith("/node_modules/@medusajs/dashboard/src/app.tsx"))) throw new Error("installed dashboard source was not discovered")',
-        'if (!rootUrl.endsWith("/dist/app.mjs")) throw new Error(`root export mismatch: ${rootUrl}`)',
-        'if (!cssUrl.endsWith("/dist/app.css")) throw new Error(`css export mismatch: ${cssUrl}`)',
-        'if (!hooksUrl.endsWith("/dist/hooks.mjs")) throw new Error(`hooks export mismatch: ${hooksUrl}`)',
-        'console.log(`${packageJson.name}@${packageJson.version} installed as @medusajs/dashboard`)',
-      ].join(";"),
-    ],
-    { cwd: consumerDirectory, encoding: "utf8", env: childEnvironment }
+  const canonicalPackage = JSON.parse(
+    readFileSync(
+      join(
+        consumerDirectory,
+        "node_modules/@mantajs/medusa-dashboard/package.json"
+      ),
+      "utf8"
+    )
   )
-
-  console.log(proof.trim())
-
-  execFileSync(
-    "corepack",
-    [
-      "yarn",
-      "node",
-      "--input-type=commonjs",
-      "--eval",
-      [
-        'const components = require("@medusajs/dashboard/components")',
-        'const hooks = require("@medusajs/dashboard/hooks")',
-        'const vitePlugin = require("@medusajs/dashboard/vite-plugin")',
-        'if (typeof components.LayoutComposer !== "function") throw new Error("CJS LayoutComposer missing")',
-        'if (typeof hooks !== "object") throw new Error("CJS hooks export invalid")',
-        'if (typeof vitePlugin.customDashboardPlugin !== "function") throw new Error("CJS vite plugin missing")',
-        'require.resolve("@medusajs/dashboard")',
-        'require.resolve("@medusajs/dashboard/css")',
-      ].join(";"),
-    ],
-    { cwd: consumerDirectory, stdio: "inherit", env: childEnvironment }
+  const aliasedPackage = JSON.parse(
+    readFileSync(
+      join(consumerDirectory, "node_modules/@medusajs/dashboard/package.json"),
+      "utf8"
+    )
   )
+  assert.equal(canonicalPackage.name, "@mantajs/medusa-dashboard")
+  assert.equal(aliasedPackage.name, "@mantajs/medusa-dashboard")
+  assert.equal(canonicalPackage.version, rootPackage.version)
+  assert.equal(aliasedPackage.version, rootPackage.version)
 
   execFileSync("corepack", ["yarn", "tsc", "--project", "tsconfig.json"], {
     cwd: consumerDirectory,
     stdio: "inherit",
     env: childEnvironment,
   })
+
+  execFileSync("corepack", ["yarn", "node", "./runtime-contract.mjs"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+    env: childEnvironment,
+  })
+
+  const developmentSummary = JSON.parse(
+    execFileSync("corepack", ["yarn", "node", "./development-proof.mjs"], {
+      cwd: consumerDirectory,
+      encoding: "utf8",
+      env: childEnvironment,
+    }).trim()
+  )
+  assert.deepEqual(developmentSummary, {
+    accepted: 1,
+    applied: 1,
+    configured: 1,
+    decisions: [
+      {
+        entry: 0,
+        override: "src/admin/components/orders/order-list.tsx",
+        status: "applied",
+        target: "src/routes/orders/order-list/order-list.tsx",
+      },
+    ],
+    rejected: 0,
+    schemaVersion: 1,
+    unmatched: 0,
+  })
+
+  execFileSync("corepack", ["yarn", "vite", "build"], {
+    cwd: consumerDirectory,
+    stdio: "inherit",
+    env: childEnvironment,
+  })
+  const productionSummary = JSON.parse(
+    readFileSync(join(consumerDirectory, "production-summary.json"), "utf8")
+  )
+  assert.deepEqual(productionSummary, developmentSummary)
+
+  let staleBuildFailure
+  try {
+    execFileSync(
+      "corepack",
+      ["yarn", "vite", "build", "--config", "vite.stale.config.mjs"],
+      {
+        cwd: consumerDirectory,
+        encoding: "utf8",
+        env: childEnvironment,
+        stdio: "pipe",
+      }
+    )
+  } catch (error) {
+    staleBuildFailure = `${error.stdout || ""}\n${error.stderr || ""}`
+  }
+  assert.match(
+    staleBuildFailure || "",
+    /missing target: src\/routes\/orders\/order-list\/missing\.tsx/,
+    "stale exact targets must fail the packed consumer build"
+  )
+  assert.equal(
+    existsSync(join(consumerDirectory, "stale-build")),
+    false,
+    "stale policy must fail before build output is emitted"
+  )
+
+  const emittedFiles = listFiles(join(consumerDirectory, "build"))
+  const emittedSource = emittedFiles
+    .filter((file) => statSync(file).isFile() && /\.(?:js|css|html)$/.test(file))
+    .map((file) => readFileSync(file, "utf8"))
+    .join("\n")
+  assert.doesNotMatch(
+    emittedSource,
+    /node_modules\/(?:@mantajs\/medusa-dashboard|@medusajs\/dashboard)\/(?:src|dist)\//,
+    "production output leaked a private package path"
+  )
+
+  console.log(
+    `${canonicalPackage.name}@${canonicalPackage.version} passed packed canonical + @medusajs/dashboard alias contracts`
+  )
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true })
 }

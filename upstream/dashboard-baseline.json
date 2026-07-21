@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "package": "@medusajs/dashboard",
+  "version": "2.16.0",
+  "tarball": "https://registry.npmjs.org/@medusajs/dashboard/-/dashboard-2.16.0.tgz",
+  "integrity": "sha512-VnZd48MJaWckAFtKt9tOoXnYBcwAOImD8a1iksdMt/2CQTYcBYRUHpip+DDBOZI5kksbYD9KnYOdY7mpZBNifQ==",
+  "shasum": "6d2e7f0ec4e87410a63510ef3e64c23d1a365a9a",
+  "gitTag": "medusajs/medusa@v2.16.0",
+  "sourceRoot": "package/src"
+}

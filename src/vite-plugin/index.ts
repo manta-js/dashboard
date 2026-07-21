@@ -1,47 +1,27 @@
-import { Plugin, ViteDevServer } from "vite"
+import { ViteDevServer } from "vite"
 import path from "path"
 import fs from "fs"
+import { DASHBOARD_MODULE_EXTENSIONS } from "./component-path-matching"
 import {
-  DASHBOARD_MODULE_EXTENSIONS,
-  DASHBOARD_MODULE_EXTENSION_SET,
-  findDashboardComponentForOverride,
-  getDashboardModuleStem,
-  isDashboardComponentFile,
-  shouldApplyComponentOverride,
-} from "./component-path-matching"
+  ComponentOverridePolicyError,
+  createComponentOverridePolicy,
+} from "./override-policy"
+import { OverrideDiagnostics } from "./override-diagnostics"
+import type {
+  CustomDashboardPluginOptions,
+  DashboardOverridePlugin,
+} from "./types"
 
 const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
-
-function collectComponentFiles(dir: string, depth = 0): string[] {
-  if (depth > 20) return []
-  const results: string[] = []
-  let entries: fs.Dirent[]
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true })
-  } catch {
-    return results
-  }
-  for (const entry of entries) {
-    if (entry.name.startsWith(".") || entry.name === "node_modules") continue
-    const fullPath = path.resolve(dir, entry.name)
-    if (entry.isDirectory()) {
-      results.push(...collectComponentFiles(fullPath, depth + 1))
-    } else if (entry.isFile()) {
-      const ext = path.extname(entry.name)
-      if (DASHBOARD_MODULE_EXTENSION_SET.has(ext)) {
-        results.push(fullPath)
-      }
-    }
-  }
-  return results
-}
 
 function findDashboardSrc(): string | null {
   const cwd = process.cwd()
   const candidates = [
     path.join(cwd, "node_modules", "@medusajs", "dashboard", "src"),
+    path.join(cwd, "node_modules", "@mantajs", "medusa-dashboard", "src"),
     path.join(cwd, "node_modules", "@mantajs", "dashboard", "src"),
+    path.join(cwd, ".yalc", "@mantajs", "medusa-dashboard", "src"),
     path.join(cwd, ".yalc", "@mantajs", "dashboard", "src"),
   ]
   for (const dir of candidates) {
@@ -51,65 +31,111 @@ function findDashboardSrc(): string | null {
 }
 
 /**
- * Vite plugin for @mantajs/dashboard — v2 "unbundled overrides".
+ * Vite plugin for @mantajs/medusa-dashboard — explicit unbundled overrides.
  *
  * Dashboard excluded from pre-bundling → components served on-demand.
  * Overrides resolve directly to the override file (no virtual proxy).
- * All scenarios (create/delete/modify) use native HMR — zero full reloads.
+ * Vite handles modifications to declared override modules through native HMR.
  */
-export function customDashboardPlugin(): Plugin {
-  const componentsDir = path.resolve(process.cwd(), "src/admin/components")
-  const overridesByName = new Map<string, string>()
-
-  // Map component name → original dashboard file path (for module graph lookup)
-  const dashboardComponentFiles = new Map<string, string[]>()
+export function customDashboardPlugin(
+  options: CustomDashboardPluginOptions = {}
+): DashboardOverridePlugin {
+  const projectRoot = process.cwd()
   const dashboardSrc = findDashboardSrc()
-  if (dashboardSrc) {
-    for (const f of collectComponentFiles(dashboardSrc)) {
-      // Barrel files expose multiple symbols and must never be replaced by a
-      // single local component that happens to share their directory name.
-      if (!isDashboardComponentFile(f)) {
-        continue
-      }
-      const cName = getDashboardModuleStem(f)
-      if (cName) {
-        const candidates = dashboardComponentFiles.get(cName) ?? []
-        candidates.push(f)
-        dashboardComponentFiles.set(cName, candidates)
-      }
-    }
-  }
-
-  if (fs.existsSync(componentsDir)) {
-    for (const fullPath of collectComponentFiles(componentsDir).sort()) {
-      const name = getDashboardModuleStem(fullPath)
-      if (name && name !== "index") {
-        overridesByName.set(name, fullPath)
-      }
-    }
-  }
-
-  let currentServer: ViteDevServer | null = null
-  let watcherCreated = false
-
-  if (process.env.NODE_ENV === "development") {
-    if (overridesByName.size > 0) {
-      console.log("[custom-dashboard] overrides:", [...overridesByName.keys()])
-    }
-    if (dashboardComponentFiles.size > 0) {
-      const componentCount = [...dashboardComponentFiles.values()].reduce(
-        (count, candidates) => count + candidates.length,
-        0
-      )
-      console.log(
-        `[custom-dashboard] Scanned ${componentCount} dashboard components`
+  const configuredOverrides = options.componentOverrides ?? []
+  const diagnostics = new OverrideDiagnostics(
+    configuredOverrides,
+    options.onDiagnostic,
+    options.onSummary
+  )
+  let overridePolicy: ReturnType<typeof createComponentOverridePolicy>
+  try {
+    if (configuredOverrides.length > 0 && !dashboardSrc) {
+      throw new ComponentOverridePolicyError(
+        0,
+        "dashboard.missing",
+        configuredOverrides[0].override,
+        configuredOverrides[0].target,
+        "dashboard src was not found"
       )
     }
+    overridePolicy = createComponentOverridePolicy(configuredOverrides, {
+      dashboardSrc: dashboardSrc ?? projectRoot,
+      projectRoot,
+    })
+    for (const entry of overridePolicy.entries) diagnostics.accept(entry)
+  } catch (error) {
+    if (error instanceof ComponentOverridePolicyError) {
+      diagnostics.reject(error)
+    }
+    throw error
   }
 
-  return {
+  const invalidateEntry = (
+    server: ViteDevServer,
+    entry: (typeof overridePolicy.entries)[number]
+  ) => {
+    for (const file of [entry.targetPath, entry.overridePath]) {
+      const modules = server.moduleGraph.getModulesByFile(file)
+      if (!modules) continue
+      for (const module of modules) server.moduleGraph.invalidateModule(module)
+    }
+  }
+
+  const plugin: DashboardOverridePlugin = {
+    getOverrideSummary: () => diagnostics.getSummary(),
     name: "custom-dashboard",
     enforce: "pre",
+
+    buildEnd() {
+      diagnostics.finalize()
+    },
+
+    configureServer(server) {
+      const declaredPaths = overridePolicy.entries.flatMap(
+        ({ overridePath, targetPath }) => [overridePath, targetPath]
+      )
+      if (declaredPaths.length === 0) return
+
+      const presentOverrides = new Set(
+        overridePolicy.entries.map(({ overridePath }) => overridePath)
+      )
+      server.watcher.add(declaredPaths)
+
+      server.watcher.on("change", (file) => {
+        const entry =
+          overridePolicy.getEntryForOverridePath(file) ??
+          overridePolicy.getEntryForTarget(file)
+        if (entry) invalidateEntry(server, entry)
+      })
+      server.watcher.on("unlink", (file) => {
+        const overrideEntry = overridePolicy.getEntryForOverridePath(file)
+        if (
+          overrideEntry &&
+          presentOverrides.delete(overrideEntry.overridePath)
+        ) {
+          diagnostics.lifecycle("deleted", overrideEntry)
+          invalidateEntry(server, overrideEntry)
+          return
+        }
+        const targetEntry = overridePolicy.getEntryForTarget(file)
+        if (targetEntry) invalidateEntry(server, targetEntry)
+      })
+      server.watcher.on("add", (file) => {
+        const overrideEntry = overridePolicy.getEntryForOverridePath(file)
+        if (
+          overrideEntry &&
+          !presentOverrides.has(overrideEntry.overridePath)
+        ) {
+          presentOverrides.add(overrideEntry.overridePath)
+          diagnostics.lifecycle("restored", overrideEntry)
+          invalidateEntry(server, overrideEntry)
+          return
+        }
+        const targetEntry = overridePolicy.getEntryForTarget(file)
+        if (targetEntry) invalidateEntry(server, targetEntry)
+      })
+    },
 
     config(config) {
       config.optimizeDeps = config.optimizeDeps || {}
@@ -118,13 +144,16 @@ export function customDashboardPlugin(): Plugin {
 
       // Exclude dashboard from pre-bundling → on-demand serving.
       config.optimizeDeps.exclude.push("@medusajs/dashboard")
+      config.optimizeDeps.exclude.push("@mantajs/medusa-dashboard")
       config.optimizeDeps.exclude.push("@mantajs/dashboard")
 
       // Medusa puts dashboard in include. include beats exclude in Vite.
       if (config.optimizeDeps.include) {
         config.optimizeDeps.include = config.optimizeDeps.include.filter(
           (dep) =>
-            dep !== "@medusajs/dashboard" && dep !== "@mantajs/dashboard"
+            dep !== "@medusajs/dashboard" &&
+            dep !== "@mantajs/medusa-dashboard" &&
+            dep !== "@mantajs/dashboard"
         )
       }
 
@@ -147,28 +176,23 @@ export function customDashboardPlugin(): Plugin {
     async resolveId(source, importer) {
       if (source === MENU_VIRTUAL_ID) return MENU_RESOLVED_ID
 
-      // Resolve directly to override file (no virtual proxy → native HMR works)
+      // Resolve only exact, explicitly configured target modules.
       if (importer) {
         const normImporter = importer.replace(/\\/g, "/")
         if (normImporter.includes("/dashboard/src/")) {
-          const basename = getDashboardModuleStem(source)
-          if (basename && basename !== "index" && overridesByName.has(basename)) {
-            const overridePath = overridesByName.get(basename)!
-            const candidates = dashboardComponentFiles.get(basename) ?? []
-
-            const resolvedOriginal = await this.resolve(source, importer, {
-              skipSelf: true,
-            })
-
-            if (
-              resolvedOriginal &&
-              shouldApplyComponentOverride(
-                resolvedOriginal.id,
-                overridePath,
-                candidates
-              )
-            ) {
-              return overridePath
+          const resolvedOriginal = await this.resolve(source, importer, {
+            skipSelf: true,
+          })
+          if (resolvedOriginal) {
+            const entry = overridePolicy.getEntryForTarget(resolvedOriginal.id)
+            if (entry) {
+              if (!fs.existsSync(entry.overridePath)) {
+                throw new Error(
+                  `[custom-dashboard] Declared override ${entry.override} for ${entry.target} is missing; restore the file or remove the policy entry`
+                )
+              }
+              diagnostics.apply(entry)
+              return entry.overridePath
             }
           }
         }
@@ -203,101 +227,22 @@ export function customDashboardPlugin(): Plugin {
         return "export default null"
       }
     },
-
-    configureServer(server: ViteDevServer) {
-      currentServer = server
-
-      if (!fs.existsSync(componentsDir)) return
-
-      if (!watcherCreated) {
-        watcherCreated = true
-        let debounceTimer: ReturnType<typeof setTimeout> | null = null
-
-        fs.watch(componentsDir, { recursive: true }, (_event, filename) => {
-          if (!filename) return
-          const ext = path.extname(filename)
-          if (!DASHBOARD_MODULE_EXTENSION_SET.has(ext)) return
-
-          const name = getDashboardModuleStem(filename)
-          if (!name || name === "index") return
-          if (!dashboardComponentFiles.has(name)) return
-
-          const fullPath = path.resolve(componentsDir, filename)
-          const fileExists = fs.existsSync(fullPath)
-          const wasKnown = overridesByName.has(name)
-
-          // Modification — native HMR handles it
-          if (fileExists && wasKnown) return
-
-          // Create or delete — HMR via module graph invalidation (no restart)
-          if (debounceTimer) clearTimeout(debounceTimer)
-          debounceTimer = setTimeout(() => {
-            // Rescan all overrides (handles rapid multi-file changes)
-            const oldOverrides = new Map(overridesByName)
-            overridesByName.clear()
-            for (const fp of collectComponentFiles(componentsDir).sort()) {
-              const n = getDashboardModuleStem(fp)
-              if (n && n !== "index") {
-                overridesByName.set(n, fp)
-              }
-            }
-
-            if (!currentServer) return
-            const { moduleGraph } = currentServer
-
-            // Diff old vs new to find what actually changed
-            const allNames = new Set([...oldOverrides.keys(), ...overridesByName.keys()])
-            for (const n of allNames) {
-              const wasOverride = oldOverrides.has(n)
-              const isOverride = overridesByName.has(n)
-              if (wasOverride === isOverride) continue
-
-              const action = isOverride ? "created" : "deleted"
-              console.log(`[custom-dashboard] Override "${n}" ${action} → HMR update`)
-
-              // Find the module that was serving this component
-              // Normalize paths (forward slashes) for cross-platform compatibility
-              let targetMod: ReturnType<typeof moduleGraph.getModulesByFile> = undefined
-              if (isOverride) {
-                // CREATE: find the original dashboard module in the graph
-                const overridePath = overridesByName.get(n)!
-                const originalPath = findDashboardComponentForOverride(
-                  overridePath,
-                  dashboardComponentFiles.get(n) ?? []
-                )
-                if (originalPath) {
-                  targetMod = moduleGraph.getModulesByFile(originalPath.replace(/\\/g, "/"))
-                }
-              } else {
-                // DELETE: find the now-removed override module in the graph
-                const oldPath = oldOverrides.get(n)!
-                targetMod = moduleGraph.getModulesByFile(oldPath.replace(/\\/g, "/"))
-              }
-
-              const targetModule = targetMod ? [...targetMod][0] : undefined
-              if (targetModule && targetModule.importers.size > 0) {
-                // Invalidate target so it's not served stale
-                moduleGraph.invalidateModule(targetModule)
-
-                // Emit change on importers — Vite's native HMR pipeline
-                // handles boundary detection and update propagation
-                for (const importer of targetModule.importers) {
-                  if (importer.file) {
-                    console.log(`[custom-dashboard] HMR → ${path.basename(importer.file)}`)
-                    currentServer!.watcher.emit("change", importer.file)
-                  }
-                }
-              } else {
-                console.log(`[custom-dashboard] Override map updated (module not in graph)`)
-              }
-            }
-          }, 300)
-        })
-      }
-    },
   }
+
+  return plugin
 }
 
 export const menuConfigPlugin = customDashboardPlugin
 
-export type { MenuConfig, MenuItem, MenuNestedItem } from "./types"
+export type {
+  CustomDashboardPluginOptions,
+  DashboardComponentOverride,
+  DashboardOverrideDecision,
+  DashboardOverrideDiagnostic,
+  DashboardOverrideDiagnosticKind,
+  DashboardOverridePlugin,
+  DashboardOverrideSummary,
+  MenuConfig,
+  MenuItem,
+  MenuNestedItem,
+} from "./types"

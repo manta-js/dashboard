@@ -1,58 +1,37 @@
-# @mantajs/dashboard
+# @mantajs/medusa-dashboard
 
 A customizable fork of `@medusajs/dashboard` that lets you **override components**, **override routes**, and **define your own sidebar menu** — without modifying the original dashboard source code.
 
 Drop-in replacement for `@medusajs/dashboard` via package manager resolutions/overrides.
 
-## Installation
+## Candidate status
+
+OLI-398 prepares `@mantajs/medusa-dashboard` but does not publish it. The B2B
+application remains pinned to the rollback package
+`@mantajs/dashboard@0.1.18-medusa.0` until OLI-405 proves and authorizes its
+migration. See [the staged package migration](docs/PACKAGE_MIGRATION.md).
+
+For local candidate validation, install the tarball produced by `yarn pack`:
 
 ```bash
-# Yarn — pin the isolated Medusa compatibility line exactly
-yarn add @mantajs/dashboard@0.1.18-medusa.0
-
-# npm
-npm install @mantajs/dashboard@0.1.18-medusa.0
-
-# pnpm
-pnpm add @mantajs/dashboard@0.1.18-medusa.0
+yarn add file:/path/to/mantajs-medusa-dashboard.tgz
 ```
 
-The Medusa dashboard fork is published only under the `medusa` npm dist-tag.
-Pin its prerelease version exactly: the same npm package name also carries a
-separate generic `0.2.x` beta line, and this repository must not replace it.
+The future package retains the Medusa-specific prerelease suffix and `medusa`
+dist-tag. The generic `@mantajs/dashboard` `0.2.x` line is unrelated and must
+never be overwritten or deprecated by this migration.
 
 ### Using as a dashboard replacement
 
-In your Medusa backend's `package.json`, add a resolution/override to swap `@medusajs/dashboard` with `@mantajs/dashboard`. The syntax depends on your package manager:
+In a disposable validation project, alias `@medusajs/dashboard` to the packed
+candidate. OLI-405 owns the equivalent B2B change.
 
 #### Yarn (v1 & v4+)
 
 ```json
 {
   "resolutions": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
-  }
-}
-```
-
-#### npm (v8.3+)
-
-```json
-{
-  "overrides": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
-  }
-}
-```
-
-#### pnpm
-
-```json
-{
-  "pnpm": {
-    "overrides": {
-      "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
-    }
+    "@medusajs/dashboard": "file:/path/to/mantajs-medusa-dashboard.tgz"
   }
 }
 ```
@@ -61,13 +40,22 @@ Then register the Vite plugin in your `medusa-config.ts`:
 
 ```ts
 import { defineConfig } from "@medusajs/framework/config"
-import { customDashboardPlugin } from "@mantajs/dashboard/vite-plugin"
+import { customDashboardPlugin } from "@mantajs/medusa-dashboard/vite-plugin"
 
 export default defineConfig({
   // ...
   admin: {
     vite: () => ({
-      plugins: [customDashboardPlugin()],
+      plugins: [
+        customDashboardPlugin({
+          componentOverrides: [
+            {
+              override: "src/admin/components/orders/order-activity-section.tsx",
+              target: "src/routes/orders/order-detail/components/order-activity-section/order-activity-section.tsx",
+            },
+          ],
+        }),
+      ],
     }),
   },
 })
@@ -79,7 +67,9 @@ Run `medusa build` (or `medusa develop`) and the custom dashboard will be compil
 
 ### 1. Component Overrides
 
-Replace any dashboard component by placing a file with the **same name** in your project's `src/admin/components/` directory. The plugin **recursively scans** the entire `components/` tree, so you can organize overrides in subdirectories.
+Component replacement is opt-in. Each override must declare both its
+project-relative module and its exact vendored dashboard target. Files are never
+authorized by directory scan or filename equality.
 
 ```
 your-project/
@@ -93,20 +83,9 @@ your-project/
                 └── shipping-address-form.tsx         ← deeply nested (works too)
 ```
 
-**How it works:**
-
-During Vite's pre-bundling phase, the plugin redirects the dashboard's `dist/app.mjs` entry to source files. It then intercepts individual source file loads and swaps any component whose filename matches one of your overrides.
-
-Unique component names match by **file name** (without extension), regardless
-of subdirectory depth. When Medusa contains multiple source files with the same
-name, mirror enough of the Medusa directory suffix to select the intended file.
-For example:
-
-| Your file | Overrides |
-|-----------|-----------|
-| `product-general-section.tsx` | `src/routes/products/.../product-general-section.tsx` |
-| `orders/order-list.tsx` | `src/routes/orders/order-list/order-list.tsx` |
-| `layout/main-layout.tsx` | `src/components/layout/main-layout/main-layout.tsx` |
+The policy is validated fail-closed before resolution. Missing files, duplicate
+targets, traversal, unsupported extensions, and stale vendored targets stop the
+build with structured diagnostics.
 
 Your override component must export a `default` export:
 
@@ -124,22 +103,18 @@ export default OrderActivitySection
 | Action | Behavior | Details |
 |--------|----------|---------|
 | **Modify** an override | **HMR** (Hot Module Replacement) | The component is swapped in-place — no page reload, no React state loss. Instant feedback. |
-| **Create** a new override | **HMR update** | The override map is rescanned and the original dashboard module is invalidated without restarting Vite. |
-| **Delete** an override | **HMR update** | The override map is rescanned and the original dashboard component is restored without restarting Vite. |
+| **Create** a declared override | **HMR update** | The exact configured target is invalidated; undeclared files remain inert. |
+| **Delete** a declared override | **Fail closed** | The exact configured target is invalidated and a deletion diagnostic is emitted. |
 
 Under the hood, override files are kept as **separate Vite modules** (not
 inlined into the pre-bundled chunk). React Fast Refresh handles modifications;
-creation and deletion rescan the override map and invalidate the affected module.
+creation and deletion invalidate only the declared target.
 
 **Important notes:**
 
-- Override files are discovered **recursively** in `src/admin/components/` and all its subdirectories.
-- Unique names match by file name. Ambiguous Medusa names use the most specific
-  matching directory suffix; for example,
-  `common/table/data-table/hooks.tsx` selects Medusa's table hooks rather than
-  unrelated form or keybind hooks.
-- If two local override files share the same name, the one that comes last
-  alphabetically by full path wins deterministically.
+- Omitted or empty `componentOverrides` means zero component replacements.
+- Only exact configured target paths can be replaced.
+- Duplicate targets and ambiguous policy entries are rejected.
 - Index/barrel files (`index.ts`) are never overridden to preserve re-exports.
 - The plugin forces Vite to re-optimize dependencies when overrides are present, so changes are always picked up.
 
@@ -218,7 +193,7 @@ your-project/
 ```tsx
 // src/admin/menu.config.tsx
 import { ShoppingCart, Users, BuildingStorefront } from "@medusajs/icons"
-import type { MenuConfig } from "@mantajs/dashboard/vite-plugin"
+import type { MenuConfig } from "@mantajs/medusa-dashboard/vite-plugin"
 
 const config: MenuConfig = {
   items: [
@@ -261,7 +236,7 @@ export default config
 **Types:**
 
 ```ts
-import type { MenuConfig, MenuItem, MenuNestedItem } from "@mantajs/dashboard/vite-plugin"
+import type { MenuConfig, MenuItem, MenuNestedItem } from "@mantajs/medusa-dashboard/vite-plugin"
 ```
 
 When no `menu.config.ts` is found, the dashboard falls back to its built-in sidebar menu.
@@ -356,11 +331,11 @@ If you **don't** include a module's route in your menu config, it will appear in
 
 | Import | Description |
 |--------|-------------|
-| `@mantajs/dashboard` | Main dashboard app (DashboardPlugin type, render function) |
-| `@mantajs/dashboard/components` | Medusa public components, including `LayoutComposer` |
-| `@mantajs/dashboard/hooks` | Medusa public dashboard hooks |
-| `@mantajs/dashboard/css` | Dashboard stylesheet |
-| `@mantajs/dashboard/vite-plugin` | Vite plugin + menu types |
+| `@mantajs/medusa-dashboard` | Main dashboard app (DashboardPlugin type, render function) |
+| `@mantajs/medusa-dashboard/components` | Medusa public components, including `LayoutComposer` |
+| `@mantajs/medusa-dashboard/hooks` | Medusa public dashboard hooks |
+| `@mantajs/medusa-dashboard/css` | Dashboard stylesheet |
+| `@mantajs/medusa-dashboard/vite-plugin` | Vite plugin + menu and override policy types |
 
 ## Development
 
@@ -400,8 +375,10 @@ yarn i18n:validate
 ## Release policy
 
 npm publication occurs only from a published GitHub Release. The release tag
-must exactly equal `v<package.version>` and target a commit contained in `main`;
-the workflow reruns the full `yarn verify` gate before publishing with provenance.
+must exactly equal `v<package.version>`, target `main`, and reference a commit
+contained in `main`. The workflow reruns `yarn verify`, requires the protected
+`npm-medusa-dashboard` environment, and refuses publication while the transition
+manifest lacks merged OLI-405 evidence. OLI-398 leaves that manifest locked.
 
 ## License
 

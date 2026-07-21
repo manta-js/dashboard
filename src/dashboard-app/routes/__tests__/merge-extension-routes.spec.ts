@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { RouteObject } from "react-router-dom"
 
 import { mergeExtensionRoutes } from "../merge-extension-routes"
+import { createRouteMap } from "../utils"
 
 describe("mergeExtensionRoutes", () => {
   it("lets an extension override a page while preserving unmatched core children", () => {
@@ -60,5 +61,19 @@ describe("mergeExtensionRoutes", () => {
 
     expect(coreRoutes).toEqual(coreSnapshot)
     expect(extensions).toEqual(extensionSnapshot)
+  })
+
+  it("preserves a leaf route handle in the lazy route result", async () => {
+    const handle = { breadcrumb: () => "Reports" }
+    const [branch] = createRouteMap([
+      {
+        path: "/reports",
+        Component: () => null,
+        handle,
+      },
+    ])
+
+    const leaf = branch.children?.[0]
+    expect(await leaf?.lazy?.()).toMatchObject({ handle })
   })
 })
