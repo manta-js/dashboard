@@ -20,6 +20,9 @@ installed tarball before any npm release is considered.
   (`.github/workflows/publish.yml`). This plan produces a validated tarball and
   a merge-ready PR, but does not publish a release without the reconciled release
   authorization.
+- The shared npm name also carries the generic package's `0.2.x` beta line.
+  This Medusa fork therefore uses the isolated `0.1.18-medusa.0` prerelease and
+  the explicit `medusa` dist-tag; consumers must pin it exactly.
 - Existing public APIs and custom behavior must remain compatible, especially
   `customDashboardPlugin`, `menuConfigPlugin`, menu types, component overrides,
   route overrides, and the alias-based B2B installation topology.
@@ -33,7 +36,7 @@ installed tarball before any npm release is considered.
 | R3 | Existing root, CSS, package metadata and Vite-plugin exports remain available. | Package export manifest test and installed-tarball consumer imports. |
 | R4 | Manta component, route and menu override behavior survives the source upgrade. | Existing tests plus focused route/menu/plugin regression tests. |
 | R5 | The exact B2B Yarn alias topology can install and resolve the packed fork. | Disposable consumer with `@medusajs/dashboard` aliased to the local tarball. |
-| R6 | The repository ships through its declared GitHub Release policy only. | PR targets `main`; no npm publish or GitHub Release in this task. |
+| R6 | The repository ships through its declared GitHub Release policy only, on the isolated `medusa` prerelease channel. | PR targets `main`; release guard and package contract require the `medusa` line/tag; no npm publish or GitHub Release in this task. |
 
 ## Implementation units
 

@@ -18,6 +18,9 @@ const expectedExports = {
   "./package.json": null,
 }
 
+assert.match(packageJson.version, /^\d+\.\d+\.\d+-medusa\.\d+$/)
+assert.equal(packageJson.publishConfig?.tag, "medusa")
+
 for (const [subpath, conditions] of Object.entries(expectedExports)) {
   assert.ok(packageJson.exports[subpath], `missing export ${subpath}`)
   if (conditions) {

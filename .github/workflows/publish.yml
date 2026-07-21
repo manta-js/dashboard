@@ -36,4 +36,4 @@ jobs:
           git fetch --no-tags origin main:refs/remotes/origin/main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
-      - run: npm publish --provenance --access public
+      - run: npm publish --tag medusa --provenance --access public

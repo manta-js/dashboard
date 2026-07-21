@@ -1,6 +1,6 @@
 {
   "name": "@mantajs/dashboard",
-  "version": "0.2.0",
+  "version": "0.1.18-medusa.0",
   "description": "B2B Admin Dashboard for Medusa - Fork of @medusajs/dashboard",
   "license": "MIT",
   "author": {
@@ -17,7 +17,8 @@
   },
   "publishConfig": {
     "access": "public",
-    "provenance": true
+    "provenance": true,
+    "tag": "medusa"
   },
   "packageManager": "yarn@1.22.22",
   "keywords": [

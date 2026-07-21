@@ -8,10 +8,23 @@ const packageJson = JSON.parse(
 const expectedTag = `v${packageJson.version}`
 const actualTag = process.env.GITHUB_REF_NAME
 
+assert.match(
+  packageJson.version,
+  /^\d+\.\d+\.\d+-medusa\.\d+$/,
+  "release version must stay on the isolated Medusa prerelease line"
+)
+assert.equal(
+  packageJson.publishConfig?.tag,
+  "medusa",
+  "release package must publish under the medusa dist-tag"
+)
+
 assert.equal(
   actualTag,
   expectedTag,
   `release tag ${actualTag || "<missing>"} must match package version ${expectedTag}`
 )
 
-console.log(`Release tag ${actualTag} matches ${packageJson.name}@${packageJson.version}`)
+console.log(
+  `Release tag ${actualTag} matches ${packageJson.name}@${packageJson.version} on dist-tag medusa`
+)

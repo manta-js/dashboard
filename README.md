@@ -7,15 +7,19 @@ Drop-in replacement for `@medusajs/dashboard` via package manager resolutions/ov
 ## Installation
 
 ```bash
-# Yarn
-yarn add @mantajs/dashboard
+# Yarn — pin the isolated Medusa compatibility line exactly
+yarn add @mantajs/dashboard@0.1.18-medusa.0
 
 # npm
-npm install @mantajs/dashboard
+npm install @mantajs/dashboard@0.1.18-medusa.0
 
 # pnpm
-pnpm add @mantajs/dashboard
+pnpm add @mantajs/dashboard@0.1.18-medusa.0
 ```
+
+The Medusa dashboard fork is published only under the `medusa` npm dist-tag.
+Pin its prerelease version exactly: the same npm package name also carries a
+separate generic `0.2.x` beta line, and this repository must not replace it.
 
 ### Using as a dashboard replacement
 
@@ -26,7 +30,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 ```json
 {
   "resolutions": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.2.0"
+    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
   }
 }
 ```
@@ -36,7 +40,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 ```json
 {
   "overrides": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.2.0"
+    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
   }
 }
 ```
@@ -47,7 +51,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 {
   "pnpm": {
     "overrides": {
-      "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.2.0"
+      "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
     }
   }
 }

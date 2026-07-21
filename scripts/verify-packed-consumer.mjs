@@ -132,6 +132,7 @@ try {
         'if (typeof LayoutComposer !== "function") throw new Error("LayoutComposer missing")',
         'if (typeof customDashboardPlugin !== "function") throw new Error("vite plugin missing")',
         'if (packageJson.name !== "@mantajs/dashboard") throw new Error("alias did not install Manta")',
+        `if (packageJson.version !== ${JSON.stringify(rootPackage.version)}) throw new Error(\`version mismatch: \${packageJson.version}\`)`,
         'if (dashboardVitePlugin.name !== "custom-dashboard") throw new Error("plugin instance mismatch")',
         'if (!viteConfig.optimizeDeps?.entries?.some((entry) => entry.endsWith("/node_modules/@medusajs/dashboard/src/app.tsx"))) throw new Error("installed dashboard source was not discovered")',
         'if (!rootUrl.endsWith("/dist/app.mjs")) throw new Error(`root export mismatch: ${rootUrl}`)',
