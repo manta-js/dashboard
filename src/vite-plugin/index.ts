@@ -1,11 +1,16 @@
-import { Plugin } from "vite"
+import { ViteDevServer } from "vite"
 import path from "path"
 import fs from "fs"
+import { DASHBOARD_MODULE_EXTENSIONS } from "./component-path-matching"
 import {
-  DASHBOARD_MODULE_EXTENSIONS,
-} from "./component-path-matching"
-import { createComponentOverridePolicy } from "./override-policy"
-import type { CustomDashboardPluginOptions } from "./types"
+  ComponentOverridePolicyError,
+  createComponentOverridePolicy,
+} from "./override-policy"
+import { OverrideDiagnostics } from "./override-diagnostics"
+import type {
+  CustomDashboardPluginOptions,
+  DashboardOverridePlugin,
+} from "./types"
 
 const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
@@ -32,25 +37,103 @@ function findDashboardSrc(): string | null {
  */
 export function customDashboardPlugin(
   options: CustomDashboardPluginOptions = {}
-): Plugin {
+): DashboardOverridePlugin {
   const projectRoot = process.cwd()
   const dashboardSrc = findDashboardSrc()
-  if ((options.componentOverrides?.length ?? 0) > 0 && !dashboardSrc) {
-    throw new Error(
-      "[custom-dashboard] Cannot validate component overrides: dashboard src was not found"
-    )
-  }
-  const overridePolicy = createComponentOverridePolicy(
-    options.componentOverrides,
-    {
+  const configuredOverrides = options.componentOverrides ?? []
+  const diagnostics = new OverrideDiagnostics(
+    configuredOverrides,
+    options.onDiagnostic,
+    options.onSummary
+  )
+  let overridePolicy: ReturnType<typeof createComponentOverridePolicy>
+  try {
+    if (configuredOverrides.length > 0 && !dashboardSrc) {
+      throw new ComponentOverridePolicyError(
+        0,
+        "dashboard.missing",
+        configuredOverrides[0].override,
+        configuredOverrides[0].target,
+        "dashboard src was not found"
+      )
+    }
+    overridePolicy = createComponentOverridePolicy(configuredOverrides, {
       dashboardSrc: dashboardSrc ?? projectRoot,
       projectRoot,
+    })
+    for (const entry of overridePolicy.entries) diagnostics.accept(entry)
+  } catch (error) {
+    if (error instanceof ComponentOverridePolicyError) {
+      diagnostics.reject(error)
     }
-  )
+    throw error
+  }
 
-  return {
+  const invalidateEntry = (
+    server: ViteDevServer,
+    entry: (typeof overridePolicy.entries)[number]
+  ) => {
+    for (const file of [entry.targetPath, entry.overridePath]) {
+      const modules = server.moduleGraph.getModulesByFile(file)
+      if (!modules) continue
+      for (const module of modules) server.moduleGraph.invalidateModule(module)
+    }
+  }
+
+  const plugin: DashboardOverridePlugin = {
+    getOverrideSummary: () => diagnostics.getSummary(),
     name: "custom-dashboard",
     enforce: "pre",
+
+    buildEnd() {
+      diagnostics.finalize()
+    },
+
+    configureServer(server) {
+      const declaredPaths = overridePolicy.entries.flatMap(
+        ({ overridePath, targetPath }) => [overridePath, targetPath]
+      )
+      if (declaredPaths.length === 0) return
+
+      const presentOverrides = new Set(
+        overridePolicy.entries.map(({ overridePath }) => overridePath)
+      )
+      server.watcher.add(declaredPaths)
+
+      server.watcher.on("change", (file) => {
+        const entry =
+          overridePolicy.getEntryForOverridePath(file) ??
+          overridePolicy.getEntryForTarget(file)
+        if (entry) invalidateEntry(server, entry)
+      })
+      server.watcher.on("unlink", (file) => {
+        const overrideEntry = overridePolicy.getEntryForOverridePath(file)
+        if (
+          overrideEntry &&
+          presentOverrides.delete(overrideEntry.overridePath)
+        ) {
+          diagnostics.lifecycle("deleted", overrideEntry)
+          invalidateEntry(server, overrideEntry)
+          return
+        }
+        const targetEntry = overridePolicy.getEntryForTarget(file)
+        if (targetEntry) invalidateEntry(server, targetEntry)
+      })
+      server.watcher.on("add", (file) => {
+        const overrideEntry = overridePolicy.getEntryForOverridePath(file)
+        if (
+          overrideEntry &&
+          !presentOverrides.has(overrideEntry.overridePath)
+        ) {
+          presentOverrides.add(overrideEntry.overridePath)
+          diagnostics.lifecycle("restored", overrideEntry)
+          invalidateEntry(server, overrideEntry)
+          return
+        }
+        const targetEntry = overridePolicy.getEntryForTarget(file)
+        if (targetEntry) invalidateEntry(server, targetEntry)
+      })
+    },
 
     config(config) {
       config.optimizeDeps = config.optimizeDeps || {}
@@ -96,10 +179,16 @@ export function customDashboardPlugin(
             skipSelf: true,
           })
           if (resolvedOriginal) {
-            const overridePath = overridePolicy.getOverrideForTarget(
-              resolvedOriginal.id
-            )
-            if (overridePath) return overridePath
+            const entry = overridePolicy.getEntryForTarget(resolvedOriginal.id)
+            if (entry) {
+              if (!fs.existsSync(entry.overridePath)) {
+                throw new Error(
+                  `[custom-dashboard] Declared override ${entry.override} for ${entry.target} is missing; restore the file or remove the policy entry`
+                )
+              }
+              diagnostics.apply(entry)
+              return entry.overridePath
+            }
           }
         }
       }
@@ -134,6 +223,8 @@ export function customDashboardPlugin(
       }
     },
   }
+
+  return plugin
 }
 
 export const menuConfigPlugin = customDashboardPlugin
@@ -141,6 +232,11 @@ export const menuConfigPlugin = customDashboardPlugin
 export type {
   CustomDashboardPluginOptions,
   DashboardComponentOverride,
+  DashboardOverrideDecision,
+  DashboardOverrideDiagnostic,
+  DashboardOverrideDiagnosticKind,
+  DashboardOverridePlugin,
+  DashboardOverrideSummary,
   MenuConfig,
   MenuItem,
   MenuNestedItem,
