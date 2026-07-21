@@ -1,12 +1,17 @@
 import { Plugin, ViteDevServer } from "vite"
 import path from "path"
 import fs from "fs"
+import {
+  DASHBOARD_MODULE_EXTENSIONS,
+  DASHBOARD_MODULE_EXTENSION_SET,
+  findDashboardComponentForOverride,
+  getDashboardModuleStem,
+  isDashboardComponentFile,
+  shouldApplyComponentOverride,
+} from "./component-path-matching"
 
 const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
-
-const COMPONENT_EXTENSIONS = [".tsx", ".ts", ".jsx", ".js", ".mts", ".mjs"]
-const COMPONENT_EXT_SET = new Set(COMPONENT_EXTENSIONS)
 
 function collectComponentFiles(dir: string, depth = 0): string[] {
   if (depth > 20) return []
@@ -24,28 +29,12 @@ function collectComponentFiles(dir: string, depth = 0): string[] {
       results.push(...collectComponentFiles(fullPath, depth + 1))
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name)
-      if (COMPONENT_EXT_SET.has(ext)) {
+      if (DASHBOARD_MODULE_EXTENSION_SET.has(ext)) {
         results.push(fullPath)
       }
     }
   }
   return results
-}
-
-function getComponentName(filePath: string): string | null {
-  const normalized = filePath.replace(/\\/g, "/")
-  const parts = normalized.split("/").filter(Boolean)
-  if (parts.length === 0) return null
-  const fileName = parts[parts.length - 1]
-  const baseName = fileName.replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
-  if (!baseName) return null
-  if (baseName === "index") {
-    return parts.length >= 2 ? parts[parts.length - 2] || null : null
-  }
-  if (parts.length >= 2 && baseName === parts[parts.length - 2]) {
-    return baseName
-  }
-  return baseName
 }
 
 function findDashboardSrc(): string | null {
@@ -73,18 +62,27 @@ export function customDashboardPlugin(): Plugin {
   const overridesByName = new Map<string, string>()
 
   // Map component name → original dashboard file path (for module graph lookup)
-  const dashboardComponentFiles = new Map<string, string>()
+  const dashboardComponentFiles = new Map<string, string[]>()
   const dashboardSrc = findDashboardSrc()
   if (dashboardSrc) {
     for (const f of collectComponentFiles(dashboardSrc)) {
-      const cName = getComponentName(f)
-      if (cName) dashboardComponentFiles.set(cName, f)
+      // Barrel files expose multiple symbols and must never be replaced by a
+      // single local component that happens to share their directory name.
+      if (!isDashboardComponentFile(f)) {
+        continue
+      }
+      const cName = getDashboardModuleStem(f)
+      if (cName) {
+        const candidates = dashboardComponentFiles.get(cName) ?? []
+        candidates.push(f)
+        dashboardComponentFiles.set(cName, candidates)
+      }
     }
   }
 
   if (fs.existsSync(componentsDir)) {
     for (const fullPath of collectComponentFiles(componentsDir).sort()) {
-      const name = path.basename(fullPath).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+      const name = getDashboardModuleStem(fullPath)
       if (name && name !== "index") {
         overridesByName.set(name, fullPath)
       }
@@ -99,8 +97,12 @@ export function customDashboardPlugin(): Plugin {
       console.log("[custom-dashboard] overrides:", [...overridesByName.keys()])
     }
     if (dashboardComponentFiles.size > 0) {
+      const componentCount = [...dashboardComponentFiles.values()].reduce(
+        (count, candidates) => count + candidates.length,
+        0
+      )
       console.log(
-        `[custom-dashboard] Scanned ${dashboardComponentFiles.size} dashboard components`
+        `[custom-dashboard] Scanned ${componentCount} dashboard components`
       )
     }
   }
@@ -149,9 +151,25 @@ export function customDashboardPlugin(): Plugin {
       if (importer) {
         const normImporter = importer.replace(/\\/g, "/")
         if (normImporter.includes("/dashboard/src/")) {
-          const basename = path.basename(source).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+          const basename = getDashboardModuleStem(source)
           if (basename && basename !== "index" && overridesByName.has(basename)) {
-            return overridesByName.get(basename)
+            const overridePath = overridesByName.get(basename)!
+            const candidates = dashboardComponentFiles.get(basename) ?? []
+
+            const resolvedOriginal = await this.resolve(source, importer, {
+              skipSelf: true,
+            })
+
+            if (
+              resolvedOriginal &&
+              shouldApplyComponentOverride(
+                resolvedOriginal.id,
+                overridePath,
+                candidates
+              )
+            ) {
+              return overridePath
+            }
           }
         }
       }
@@ -176,7 +194,7 @@ export function customDashboardPlugin(): Plugin {
     load(id) {
       if (id === MENU_RESOLVED_ID) {
         const basePath = path.resolve(process.cwd(), "src/admin/menu.config")
-        for (const ext of COMPONENT_EXTENSIONS) {
+        for (const ext of DASHBOARD_MODULE_EXTENSIONS) {
           const fullPath = (basePath + ext).replace(/\\/g, "/")
           if (fs.existsSync(fullPath)) {
             return `export { default } from "${fullPath}"`
@@ -198,9 +216,9 @@ export function customDashboardPlugin(): Plugin {
         fs.watch(componentsDir, { recursive: true }, (_event, filename) => {
           if (!filename) return
           const ext = path.extname(filename)
-          if (!COMPONENT_EXT_SET.has(ext)) return
+          if (!DASHBOARD_MODULE_EXTENSION_SET.has(ext)) return
 
-          const name = path.basename(filename).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+          const name = getDashboardModuleStem(filename)
           if (!name || name === "index") return
           if (!dashboardComponentFiles.has(name)) return
 
@@ -218,7 +236,7 @@ export function customDashboardPlugin(): Plugin {
             const oldOverrides = new Map(overridesByName)
             overridesByName.clear()
             for (const fp of collectComponentFiles(componentsDir).sort()) {
-              const n = path.basename(fp).replace(/\.(tsx?|jsx?|mts|mjs)$/, "")
+              const n = getDashboardModuleStem(fp)
               if (n && n !== "index") {
                 overridesByName.set(n, fp)
               }
@@ -242,7 +260,11 @@ export function customDashboardPlugin(): Plugin {
               let targetMod: ReturnType<typeof moduleGraph.getModulesByFile> = undefined
               if (isOverride) {
                 // CREATE: find the original dashboard module in the graph
-                const originalPath = dashboardComponentFiles.get(n)
+                const overridePath = overridesByName.get(n)!
+                const originalPath = findDashboardComponentForOverride(
+                  overridePath,
+                  dashboardComponentFiles.get(n) ?? []
+                )
                 if (originalPath) {
                   targetMod = moduleGraph.getModulesByFile(originalPath.replace(/\\/g, "/"))
                 }

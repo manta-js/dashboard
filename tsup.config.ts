@@ -1,8 +1,11 @@
 import { defineConfig } from "tsup"
 
-export default defineConfig([
-  {
-    entry: ["./src/app.tsx"],
+export default defineConfig({
+    entry: {
+      app: "./src/app.tsx",
+      components: "./src/exports/components.ts",
+      hooks: "./src/exports/hooks.ts",
+    },
     format: ["cjs", "esm"],
     external: [
       "virtual:medusa/forms",
@@ -15,14 +18,12 @@ export default defineConfig([
       "virtual:dashboard/menu-config",
     ],
     tsconfig: "tsconfig.build.json",
+    dts: {
+      entry: {
+        index: "./src/index.ts",
+        components: "./src/exports/components.ts",
+        hooks: "./src/exports/hooks.ts",
+      },
+    },
     clean: true,
-  },
-  {
-    entry: ["./src/vite-plugin/index.ts"],
-    outDir: "dist/vite-plugin",
-    format: ["cjs", "esm"],
-    dts: true,
-    platform: "node",
-    tsconfig: "tsconfig.vite-plugin.json",
-  },
-])
+})

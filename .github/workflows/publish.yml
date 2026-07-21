@@ -12,17 +12,28 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
-          node-version: latest
+          node-version: 20
           registry-url: https://registry.npmjs.org
+          cache: yarn
+
+      - run: corepack enable
 
       - name: Upgrade npm (trusted publishing requires >=11.5.1)
-        run: npm install -g npm@latest
+        run: npm install -g npm@11.5.1
 
       - run: yarn install --frozen-lockfile
 
-      - run: yarn build
+      - run: yarn verify
 
-      - run: npm publish --provenance --access public
+      - name: Verify release tag and branch
+        run: |
+          node ./scripts/verify-release-tag.mjs
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+      - run: npm publish --tag medusa --provenance --access public

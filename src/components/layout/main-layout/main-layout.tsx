@@ -19,6 +19,7 @@ import { Collapsible as RadixCollapsible } from "radix-ui"
 import { useTranslation } from "react-i18next"
 
 import { useStore } from "../../../hooks/api/store"
+import { PermissionGuard } from "../../common/permission-guard"
 import { Skeleton } from "../../common/skeleton"
 import { INavItem, NavItem } from "../../layout/nav-item"
 import { Shell } from "../../layout/shell"
@@ -45,12 +46,14 @@ const MainSidebar = () => {
   return (
     <aside className="flex flex-1 flex-col justify-between overflow-y-auto">
       <div className="flex flex-1 flex-col">
-        <div className="bg-ui-bg-subtle sticky top-0">
-          <Header />
-          <div className="px-3">
-            <Divider variant="dashed" />
+        <PermissionGuard resource="store" operation="read">
+          <div className="bg-ui-bg-subtle sticky top-0">
+            <Header />
+            <div className="px-3">
+              <Divider variant="dashed" />
+            </div>
           </div>
-        </div>
+        </PermissionGuard>
         <div className="flex flex-1 flex-col justify-between">
           <div className="flex flex-1 flex-col">
             <CoreRouteSection />
@@ -109,8 +112,7 @@ const Header = () => {
 
   return (
     <div className="w-full p-3">
-    <DropdownMenu
-          dir={direction}>
+      <DropdownMenu dir={direction}>
         <DropdownMenu.Trigger
           disabled={!isLoaded}
           className={clx(
@@ -179,39 +181,98 @@ const Header = () => {
   )
 }
 
-const getDefaultMedusaRoutes = (t: (key: string) => string): Omit<INavItem, "pathname">[] => [
-  { icon: <ShoppingCart />, label: t("orders.domain"), to: "/orders", items: [] },
-  { icon: <Tag />, label: t("products.domain"), to: "/products", items: [
-    { label: t("collections.domain"), to: "/collections" },
-    { label: t("categories.domain"), to: "/categories" },
-  ]},
-  { icon: <Buildings />, label: t("inventory.domain"), to: "/inventory", items: [
-    { label: t("reservations.domain"), to: "/reservations" },
-  ]},
-  { icon: <Users />, label: t("customers.domain"), to: "/customers", items: [
-    { label: t("customerGroups.domain"), to: "/customer-groups" },
-  ]},
-  { icon: <ReceiptPercent />, label: t("promotions.domain"), to: "/promotions", items: [
-    { label: t("campaigns.domain"), to: "/campaigns" },
-  ]},
-  { icon: <CurrencyDollar />, label: t("priceLists.domain"), to: "/price-lists" },
+const getDefaultMedusaRoutes = (
+  t: (key: string) => string
+): Omit<INavItem, "pathname">[] => [
+    {
+      icon: <ShoppingCart />,
+      label: t("orders.domain"),
+      to: "/orders",
+      items: [
+        // TODO: Enable when domin is introduced
+        // {
+        //   label: t("draftOrders.domain"),
+        //   to: "/draft-orders",
+        // },
+      ],
+    },
+    {
+      icon: <Tag />,
+      label: t("products.domain"),
+      to: "/products",
+      items: [
+        {
+          label: t("collections.domain"),
+          to: "/collections",
+        },
+        {
+          label: t("categories.domain"),
+          to: "/categories",
+        },
+        // TODO: Enable when domin is introduced
+        // {
+        //   label: t("giftCards.domain"),
+        //   to: "/gift-cards",
+        // },
+      ],
+    },
+    {
+      icon: <Buildings />,
+      label: t("inventory.domain"),
+      to: "/inventory",
+      items: [
+        {
+          label: t("reservations.domain"),
+          to: "/reservations",
+        },
+      ],
+    },
+    {
+      icon: <Users />,
+      label: t("customers.domain"),
+      to: "/customers",
+      items: [
+        {
+          label: t("customerGroups.domain"),
+          to: "/customer-groups",
+        },
+      ],
+    },
+    {
+      icon: <ReceiptPercent />,
+      label: t("promotions.domain"),
+      to: "/promotions",
+      items: [
+        {
+          label: t("campaigns.domain"),
+          to: "/campaigns",
+        },
+      ],
+    },
+    {
+      icon: <CurrencyDollar />,
+      label: t("priceLists.domain"),
+      to: "/price-lists",
+    },
 ]
 
 const useCoreRoutes = (): Omit<INavItem, "pathname">[] => {
   const { t } = useTranslation()
+  const translate = (key: string) => t(key as never)
 
   if (!menuConfig || !Array.isArray((menuConfig as MenuConfig).items)) {
-    return getDefaultMedusaRoutes(t)
+    return getDefaultMedusaRoutes(translate)
   }
 
   return (menuConfig as MenuConfig).items.map((item) => ({
     icon: item.icon,
-    label: item.useTranslation ? t(item.label) : item.label,
+    label: item.useTranslation ? translate(item.label) : item.label,
     to: item.to,
-    items: item.items?.map((sub) => ({
-      label: sub.useTranslation ? t(sub.label) : sub.label,
-      to: sub.to,
-    })) ?? [],
+    items:
+      item.items?.map((sub) => ({
+        label: sub.useTranslation ? translate(sub.label) : sub.label,
+        to: sub.to,
+      })) ?? [],
   }))
 }
 
@@ -269,16 +330,15 @@ const CoreRouteSection = () => {
   )
 }
 
-// Derived from config: avoids duplication between custom menu and extensions
 const getMainMenuPaths = (): string[] => {
-  if (!menuConfig || !Array.isArray((menuConfig as MenuConfig).items)) return []
-  const config = menuConfig as MenuConfig
-  const paths: string[] = []
-  config.items.forEach((item) => {
-    paths.push(item.to)
-    item.items?.forEach((sub) => paths.push(sub.to))
-  })
-  return paths
+  if (!menuConfig || !Array.isArray((menuConfig as MenuConfig).items)) {
+    return []
+  }
+
+  return (menuConfig as MenuConfig).items.flatMap((item) => [
+    item.to,
+    ...(item.items?.map((sub) => sub.to) ?? []),
+  ])
 }
 
 const MAIN_MENU_PATHS = getMainMenuPaths()
@@ -288,7 +348,9 @@ const ExtensionRouteSection = () => {
   const { getMenu } = useExtension()
 
   const menuItems = getMenu("coreExtensions").filter(
-    (item) => !item.nested && !MAIN_MENU_PATHS.includes(item.to) && !MAIN_MENU_PATHS.includes(item.path)
+    (item) =>
+      !item.nested &&
+      !MAIN_MENU_PATHS.includes(item.to)
   )
 
   if (!menuItems.length) {

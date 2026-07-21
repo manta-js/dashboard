@@ -7,15 +7,19 @@ Drop-in replacement for `@medusajs/dashboard` via package manager resolutions/ov
 ## Installation
 
 ```bash
-# Yarn
-yarn add @mantajs/dashboard
+# Yarn — pin the isolated Medusa compatibility line exactly
+yarn add @mantajs/dashboard@0.1.18-medusa.0
 
 # npm
-npm install @mantajs/dashboard
+npm install @mantajs/dashboard@0.1.18-medusa.0
 
 # pnpm
-pnpm add @mantajs/dashboard
+pnpm add @mantajs/dashboard@0.1.18-medusa.0
 ```
+
+The Medusa dashboard fork is published only under the `medusa` npm dist-tag.
+Pin its prerelease version exactly: the same npm package name also carries a
+separate generic `0.2.x` beta line, and this repository must not replace it.
 
 ### Using as a dashboard replacement
 
@@ -26,7 +30,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 ```json
 {
   "resolutions": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
   }
 }
 ```
@@ -36,7 +40,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 ```json
 {
   "overrides": {
-    "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+    "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
   }
 }
 ```
@@ -47,7 +51,7 @@ In your Medusa backend's `package.json`, add a resolution/override to swap `@med
 {
   "pnpm": {
     "overrides": {
-      "@medusajs/dashboard": "npm:@mantajs/dashboard@^0.1.13"
+      "@medusajs/dashboard": "npm:@mantajs/dashboard@0.1.18-medusa.0"
     }
   }
 }
@@ -93,7 +97,10 @@ your-project/
 
 During Vite's pre-bundling phase, the plugin redirects the dashboard's `dist/app.mjs` entry to source files. It then intercepts individual source file loads and swaps any component whose filename matches one of your overrides.
 
-Matching is done by **file name** (without extension), regardless of subdirectory depth. For example:
+Unique component names match by **file name** (without extension), regardless
+of subdirectory depth. When Medusa contains multiple source files with the same
+name, mirror enough of the Medusa directory suffix to select the intended file.
+For example:
 
 | Your file | Overrides |
 |-----------|-----------|
@@ -117,16 +124,22 @@ export default OrderActivitySection
 | Action | Behavior | Details |
 |--------|----------|---------|
 | **Modify** an override | **HMR** (Hot Module Replacement) | The component is swapped in-place — no page reload, no React state loss. Instant feedback. |
-| **Create** a new override | **Automatic full reload** (~2-3s) | The Vite server restarts to rebuild the pre-bundle, then the browser reloads automatically. No manual refresh needed. |
-| **Delete** an override | **Automatic full reload** (~2-3s) | Same as creation — the original dashboard component is restored automatically. |
+| **Create** a new override | **HMR update** | The override map is rescanned and the original dashboard module is invalidated without restarting Vite. |
+| **Delete** an override | **HMR update** | The override map is rescanned and the original dashboard component is restored without restarting Vite. |
 
-Under the hood, override files are kept as **separate Vite modules** (not inlined into the pre-bundled chunk). This allows React Fast Refresh to handle modifications via standard HMR. Creation and deletion require a server restart because the esbuild chunk structure changes.
+Under the hood, override files are kept as **separate Vite modules** (not
+inlined into the pre-bundled chunk). React Fast Refresh handles modifications;
+creation and deletion rescan the override map and invalidate the affected module.
 
 **Important notes:**
 
 - Override files are discovered **recursively** in `src/admin/components/` and all its subdirectories.
-- Matching is based on **file name only** — the subdirectory structure is for your own organization and does not affect matching.
-- If two files in different subdirectories share the same name, the plugin logs a warning in development and uses the one that comes last alphabetically by full path.
+- Unique names match by file name. Ambiguous Medusa names use the most specific
+  matching directory suffix; for example,
+  `common/table/data-table/hooks.tsx` selects Medusa's table hooks rather than
+  unrelated form or keybind hooks.
+- If two local override files share the same name, the one that comes last
+  alphabetically by full path wins deterministically.
 - Index/barrel files (`index.ts`) are never overridden to preserve re-exports.
 - The plugin forces Vite to re-optimize dependencies when overrides are present, so changes are always picked up.
 
@@ -344,6 +357,8 @@ If you **don't** include a module's route in your menu config, it will appear in
 | Import | Description |
 |--------|-------------|
 | `@mantajs/dashboard` | Main dashboard app (DashboardPlugin type, render function) |
+| `@mantajs/dashboard/components` | Medusa public components, including `LayoutComposer` |
+| `@mantajs/dashboard/hooks` | Medusa public dashboard hooks |
 | `@mantajs/dashboard/css` | Dashboard stylesheet |
 | `@mantajs/dashboard/vite-plugin` | Vite plugin + menu types |
 
@@ -377,10 +392,16 @@ yarn i18n:validate
 
 ## Compatibility
 
-- **Medusa v2** (2.13.x)
+- **Medusa v2** (2.16.x)
 - **React 18**
 - **Vite 5**
 - **TypeScript 5.6+**
+
+## Release policy
+
+npm publication occurs only from a published GitHub Release. The release tag
+must exactly equal `v<package.version>` and target a commit contained in `main`;
+the workflow reruns the full `yarn verify` gate before publishing with provenance.
 
 ## License
 

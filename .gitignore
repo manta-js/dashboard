@@ -1,8 +1,8 @@
 node_modules/
 dist/
+preview-dist/
 .yalc/
 yalc.lock
 *.tsbuildinfo
 .vite/
 .yarn/
-yarn.lock
