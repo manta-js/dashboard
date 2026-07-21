@@ -17,3 +17,14 @@ export type MenuItem = {
 export type MenuConfig = {
   items: MenuItem[]
 }
+
+export type DashboardComponentOverride = {
+  /** Project-relative module below src/admin/components. */
+  override: string
+  /** Exact package-relative module below the vendored dashboard src tree. */
+  target: string
+}
+
+export type CustomDashboardPluginOptions = {
+  componentOverrides?: readonly DashboardComponentOverride[]
+}
