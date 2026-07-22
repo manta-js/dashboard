@@ -1,7 +1,16 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises"
 import test from "node:test"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -39,7 +48,7 @@ test("transition records the staged OLI-405 validation contract", async () => {
   )
   assert.equal(
     transition.candidate.tarballSha256,
-    "18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb"
+    "0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da"
   )
   assert.doesNotThrow(() =>
     verifyTransitionAuthorization(transition, { allowAwaiting: true })
@@ -98,7 +107,7 @@ const lockedTransition = {
   candidate: {
     commit: "8723df1c922e98b1fe74a28f38edee4d47a20b23",
     tarballSha256:
-      "18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb",
+      "0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da",
   },
   state: "awaiting-oli-405",
   authorization: { authorized: false, owner: "OLI-405", evidence: null },
@@ -428,20 +437,34 @@ test("GitHub evidence loader binds the private B2B PR and its head checks", () =
   assert.ok(requests.every(([, token]) => token === "test-token"))
 })
 
-test("candidate normalization is deterministic and validates its manifest", async () => {
+test("candidate normalization canonicalizes source modes and validates its manifest", async () => {
   const fixture = await mkdtemp(join(tmpdir(), "candidate-normalization-test-"))
   try {
     const packageRoot = join(fixture, "package")
     await mkdir(packageRoot)
+    await mkdir(join(packageRoot, "bin"))
     await writeFile(join(packageRoot, "package.json"), JSON.stringify(candidatePackage))
     await writeFile(join(packageRoot, "index.js"), "export const value = 1\n")
+    await writeFile(join(packageRoot, "bin/cli.js"), "#!/usr/bin/env node\n")
     const rawOne = join(fixture, "raw-one.tgz")
     const rawTwo = join(fixture, "raw-two.tgz")
     const finalOne = join(fixture, "final-one.tgz")
-    const finalTwo = join(fixture, "final-two.tgz")
+    const preparedOne = join(fixture, "prepared-one.tgz")
+    const preparedTwo = join(fixture, "prepared-two.tgz")
+    await chmod(packageRoot, 0o700)
+    await chmod(join(packageRoot, "bin"), 0o700)
+    await chmod(join(packageRoot, "package.json"), 0o600)
+    await chmod(join(packageRoot, "index.js"), 0o600)
+    await chmod(join(packageRoot, "bin/cli.js"), 0o700)
     execFileSync("tar", ["-czf", rawOne, "-C", fixture, "package"])
     await utimes(packageRoot, new Date(978_307_200_000), new Date(978_307_200_000))
+    await chmod(packageRoot, 0o755)
+    await chmod(join(packageRoot, "bin"), 0o755)
+    await chmod(join(packageRoot, "package.json"), 0o644)
+    await chmod(join(packageRoot, "index.js"), 0o644)
+    await chmod(join(packageRoot, "bin/cli.js"), 0o755)
     execFileSync("tar", ["-czf", rawTwo, "-C", fixture, "package"])
+    assert.notDeepEqual(await readFile(rawTwo), await readFile(rawOne))
 
     const expected = {
       ...lockedTransition,
@@ -453,18 +476,57 @@ test("candidate normalization is deterministic and validates its manifest", asyn
     execFileSync("tar", ["-xzf", rawOne, "-C", firstExtraction])
     execFileSync("tar", [
       "--sort=name", "--mtime=UTC 1970-01-01", "--owner=0", "--group=0",
-      "--numeric-owner", "-czf", finalOne, "-C", firstExtraction, "package",
+      "--numeric-owner", "--mode=u+rwX,go+rX,go-w", "-czf", finalOne,
+      "-C", firstExtraction, "package",
     ])
     expected.candidate.tarballSha256 = createHash("sha256")
       .update(await readFile(finalOne))
       .digest("hex")
     prepareReleaseCandidate({
-      input: rawTwo,
-      output: finalTwo,
+      input: rawOne,
+      output: preparedOne,
       releasePackage: candidatePackage,
       transition: expected,
     })
-    assert.deepEqual(await readFile(finalTwo), await readFile(finalOne))
+    prepareReleaseCandidate({
+      input: rawTwo,
+      output: preparedTwo,
+      releasePackage: candidatePackage,
+      transition: expected,
+    })
+    assert.deepEqual(await readFile(preparedOne), await readFile(finalOne))
+    assert.deepEqual(await readFile(preparedTwo), await readFile(finalOne))
+    assert.deepEqual(await readFile(preparedTwo), await readFile(preparedOne))
+
+    const normalizedExtraction = join(fixture, "normalized")
+    await mkdir(normalizedExtraction)
+    execFileSync("tar", [
+      "--same-permissions",
+      "-xzf",
+      preparedTwo,
+      "-C",
+      normalizedExtraction,
+    ])
+    assert.equal(
+      (await lstat(join(normalizedExtraction, "package"))).mode & 0o777,
+      0o755
+    )
+    assert.equal(
+      (await lstat(join(normalizedExtraction, "package/bin"))).mode & 0o777,
+      0o755
+    )
+    assert.equal(
+      (await lstat(join(normalizedExtraction, "package/package.json"))).mode & 0o777,
+      0o644
+    )
+    assert.equal(
+      (await lstat(join(normalizedExtraction, "package/index.js"))).mode & 0o777,
+      0o644
+    )
+    assert.equal(
+      (await lstat(join(normalizedExtraction, "package/bin/cli.js"))).mode & 0o777,
+      0o755
+    )
 
     const wrongIdentity = {
       ...expected,
@@ -474,7 +536,7 @@ test("candidate normalization is deterministic and validates its manifest", asyn
       () =>
         prepareReleaseCandidate({
           input: rawTwo,
-          output: finalTwo,
+          output: preparedTwo,
           releasePackage: candidatePackage,
           transition: wrongIdentity,
         }),
@@ -484,7 +546,7 @@ test("candidate normalization is deterministic and validates its manifest", asyn
       () =>
         prepareReleaseCandidate({
           input: rawTwo,
-          output: finalTwo,
+          output: preparedTwo,
           releasePackage: {
             ...candidatePackage,
             publishConfig: { ...candidatePackage.publishConfig, tag: "latest" },

@@ -81,6 +81,7 @@ export const prepareReleaseCandidate = ({
       "--owner=0",
       "--group=0",
       "--numeric-owner",
+      "--mode=u+rwX,go+rX,go-w",
       "-czf",
       output,
       "-C",
