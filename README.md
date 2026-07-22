@@ -385,9 +385,10 @@ environment's `B2B_RELEASE_VALIDATION_TOKEN` must also prove the private B2B PR,
 its `refactor` base, exact SHA, and required checks with conclusion `success`
 through GitHub. The transition manifest separately attests Dashboard candidate
 commit `8723df1c922e98b1fe74a28f38edee4d47a20b23` and tarball SHA-256
-`18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb`.
+`0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da`.
 The protected workflow rebuilds that commit in a fresh worktree, normalizes the
-archive metadata, verifies its internal package manifest and exact archive hash,
+archive timestamps, ownership and POSIX modes, verifies its internal package
+manifest and exact archive hash,
 and publishes the verified tarball instead of the authorization commit. OLI-398 and
 OLI-415 leave the manifest locked.
 

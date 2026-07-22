@@ -23,7 +23,7 @@ authorized release.
 3. OLI-405 opens a B2B PR against `refactor` using the exact candidate archive
    produced from Dashboard commit
    `8723df1c922e98b1fe74a28f38edee4d47a20b23`, with archive SHA-256
-   `18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb`.
+   `0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da`.
    These values are recorded in the transition manifest. All B2B gates must pass on one immutable
    40-character PR head SHA; the candidate archive is test input, not a
    committed dependency or a production deployment.
@@ -46,8 +46,10 @@ authorized release.
    authorization by itself. After authorization is verified, the workflow
    checks out the recorded Dashboard candidate commit in a fresh worktree,
    rebuilds it with `yarn pack`, then canonicalizes the archive with sorted
-   entries, epoch mtimes and numeric owner/group `0`. It verifies the internal
-   package identity and recorded SHA-256 before publishing that exact archive.
+   entries, epoch mtimes, numeric owner/group `0`, and permissions normalized
+   to readable files plus executable directories and originally executable
+   files. It verifies the internal package identity and recorded SHA-256 before
+   publishing that exact archive.
    It never publishes the later authorization/tag checkout.
 6. Replace the candidate archive in the same B2B PR with the exact published
    npm version, rerun every B2B gate, then merge OLI-405 into `refactor`.
