@@ -5,6 +5,7 @@ export default defineConfig({
       app: "./src/app.tsx",
       components: "./src/exports/components.ts",
       hooks: "./src/exports/hooks.ts",
+      shell: "./src/exports/shell.ts",
     },
     format: ["cjs", "esm"],
     external: [
@@ -23,6 +24,7 @@ export default defineConfig({
         index: "./src/index.ts",
         components: "./src/exports/components.ts",
         hooks: "./src/exports/hooks.ts",
+        shell: "./src/exports/shell-types.ts",
       },
     },
     clean: true,

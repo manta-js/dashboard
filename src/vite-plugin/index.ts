@@ -14,6 +14,10 @@ import type {
 
 const MENU_VIRTUAL_ID = "virtual:dashboard/menu-config"
 const MENU_RESOLVED_ID = "\0" + MENU_VIRTUAL_ID
+const PUBLIC_SHELL_IDS = new Set([
+  "@mantajs/medusa-dashboard/shell",
+  "@medusajs/dashboard/shell",
+])
 
 function findDashboardSrc(): string | null {
   const cwd = process.cwd()
@@ -175,6 +179,16 @@ export function customDashboardPlugin(
 
     async resolveId(source, importer) {
       if (source === MENU_VIRTUAL_ID) return MENU_RESOLVED_ID
+
+      if (dashboardSrc && PUBLIC_SHELL_IDS.has(source)) {
+        const shellEntry = path.join(dashboardSrc, "exports/shell.ts")
+        if (!fs.existsSync(shellEntry)) {
+          throw new Error(
+            `[custom-dashboard] The public Shell source entry is missing: ${shellEntry}`
+          )
+        }
+        return shellEntry
+      }
 
       // Resolve only exact, explicitly configured target modules.
       if (importer) {

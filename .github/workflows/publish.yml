@@ -32,6 +32,8 @@ jobs:
       - run: yarn verify
 
       - name: Verify release tag and branch
+        env:
+          B2B_RELEASE_VALIDATION_TOKEN: ${{ secrets.B2B_RELEASE_VALIDATION_TOKEN }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           node ./scripts/verify-release-tag.mjs
