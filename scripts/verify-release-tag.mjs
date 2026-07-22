@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { readFile } from "node:fs/promises"
+import { appendFile, readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -16,10 +16,12 @@ const root = resolve(import.meta.dirname, "..")
 
 export const verifyRelease = ({
   packageJson,
+  candidatePackageJson,
   transition,
   actualTag,
   targetCommitish,
   isMainAncestor,
+  isCandidateReleaseAncestor,
   githubEvidence,
 }) => {
   assert.equal(
@@ -56,6 +58,26 @@ export const verifyRelease = ({
   assert.equal(transition.to?.version, packageJson.version)
   verifyTransitionAuthorization(transition)
   assert.equal(
+    candidatePackageJson?.name,
+    packageJson.name,
+    "candidate package identity must match the authorized release identity"
+  )
+  assert.equal(
+    candidatePackageJson?.version,
+    packageJson.version,
+    "candidate package version must match the authorized release version"
+  )
+  assert.deepEqual(
+    candidatePackageJson?.publishConfig,
+    packageJson.publishConfig,
+    "candidate publishConfig must match the authorized release policy"
+  )
+  assert.equal(
+    isCandidateReleaseAncestor,
+    true,
+    "attested candidate commit must be an ancestor of the release commit"
+  )
+  assert.equal(
     githubEvidence?.url,
     transition.authorization.evidence.pullRequest,
     "GitHub evidence must match the authorized OLI-405 pull request"
@@ -74,12 +96,45 @@ export const verifyRelease = ({
       ),
     "all OLI-405 checks must be green"
   )
+  const requiredChecks = githubEvidence.checks.filter(({ name }) =>
+    REQUIRED_B2B_CHECKS.includes(name)
+  )
+  assert.ok(
+    requiredChecks.every(
+      ({
+        appSlug,
+        source,
+        status,
+        conclusion,
+        workflowEvent,
+        workflowHeadCommit,
+        workflowPath,
+        workflowRepository,
+        workflowRunId,
+      }) =>
+        source === "check-run" &&
+        appSlug === "github-actions" &&
+        status === "completed" &&
+        conclusion === "success" &&
+        workflowEvent === "pull_request" &&
+        workflowHeadCommit === githubEvidence.headCommit &&
+        workflowPath === ".github/workflows/build.yml" &&
+        workflowRepository === "OlivierBelaud/palas-wholesale" &&
+        /^\d+$/.test(workflowRunId || "")
+    ),
+    "every required B2B CI job must come from the expected successful GitHub Actions workflow run"
+  )
+  assert.equal(
+    new Set(requiredChecks.map(({ workflowRunId }) => workflowRunId)).size,
+    1,
+    "all required B2B CI jobs must come from the same GitHub Actions workflow run"
+  )
   const completedChecks = new Set(
-    githubEvidence.checks.map(({ name }) => name)
+    requiredChecks.map(({ name }) => name)
   )
   assert.ok(
     REQUIRED_B2B_CHECKS.every((name) => completedChecks.has(name)),
-    "OLI-405 must pass every required B2B CI job"
+    "OLI-405 must pass every required B2B CI job with conclusion success"
   )
 
   if (transition.state === AUTHORIZED_AFTER_VALIDATION) {
@@ -111,12 +166,20 @@ const run = async () => {
       "utf8"
     )
   )
+  const candidatePackageJson = JSON.parse(
+    execFileSync(
+      "git",
+      ["show", `${transition.candidate.commit}:package.json`],
+      { cwd: root, encoding: "utf8" }
+    )
+  )
   const event = JSON.parse(
     await readFile(process.env.GITHUB_EVENT_PATH, "utf8")
   )
   const githubEvidence = loadGithubReleaseEvidence(transition)
 
   let isMainAncestor = false
+  let isCandidateReleaseAncestor = false
   try {
     execFileSync(
       "git",
@@ -127,15 +190,43 @@ const run = async () => {
   } catch {
     isMainAncestor = false
   }
+  try {
+    execFileSync(
+      "git",
+      [
+        "merge-base",
+        "--is-ancestor",
+        transition.candidate.commit,
+        process.env.GITHUB_SHA,
+      ],
+      { cwd: root, stdio: "ignore" }
+    )
+    isCandidateReleaseAncestor = true
+  } catch {
+    isCandidateReleaseAncestor = false
+  }
 
   verifyRelease({
     packageJson,
+    candidatePackageJson,
     transition,
     actualTag: process.env.GITHUB_REF_NAME,
     targetCommitish: event.release?.target_commitish,
     isMainAncestor,
+    isCandidateReleaseAncestor,
     githubEvidence,
   })
+
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(
+      process.env.GITHUB_OUTPUT,
+      [
+        `candidate_commit=${transition.candidate.commit}`,
+        `candidate_tarball_sha256=${transition.candidate.tarballSha256}`,
+        "",
+      ].join("\n")
+    )
+  }
 
   console.log(
     `Release ${process.env.GITHUB_REF_NAME} is authorized for ${packageJson.name}@${packageJson.version}`

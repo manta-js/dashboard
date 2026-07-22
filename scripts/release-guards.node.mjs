@@ -1,13 +1,17 @@
 import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
+import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises"
 import test from "node:test"
-import { resolve } from "node:path"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { verifyRelease } from "./verify-release-tag.mjs"
 import {
   loadGithubReleaseEvidence,
   REQUIRED_B2B_CHECKS,
 } from "./github-release-evidence.mjs"
 import { verifyTransitionAuthorization } from "./transition-contract.mjs"
+import { prepareReleaseCandidate } from "./prepare-release-candidate.mjs"
 
 const root = resolve(import.meta.dirname, "..")
 
@@ -29,6 +33,14 @@ test("transition records the staged OLI-405 validation contract", async () => {
   assert.equal(transition.from.version, "0.1.18-medusa.0")
   assert.equal(transition.to.package, "@mantajs/medusa-dashboard")
   assert.equal(transition.to.version, "0.1.18-medusa.0")
+  assert.equal(
+    transition.candidate.commit,
+    "8723df1c922e98b1fe74a28f38edee4d47a20b23"
+  )
+  assert.equal(
+    transition.candidate.tarballSha256,
+    "18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb"
+  )
   assert.doesNotThrow(() =>
     verifyTransitionAuthorization(transition, { allowAwaiting: true })
   )
@@ -44,7 +56,18 @@ test("publish workflow cannot run on push or pull request", async () => {
   assert.doesNotMatch(workflow, /^\s*(push|pull_request|workflow_dispatch):/m)
   assert.match(workflow, /verify-release-tag\.mjs/)
   assert.match(workflow, /environment: npm-medusa-dashboard/)
-  assert.match(workflow, /npm publish --tag medusa --provenance --access public/)
+  assert.match(workflow, /git worktree add --detach "\$CANDIDATE_WORKTREE"/)
+  assert.match(workflow, /git clean -ffdx/)
+  assert.match(workflow, /yarn pack --filename "\$CANDIDATE_RAW_TARBALL"/)
+  assert.match(workflow, /prepare-release-candidate\.mjs/)
+  assert.match(
+    workflow,
+    /npm publish "\$CANDIDATE_TARBALL" --tag medusa --provenance --access public/
+  )
+  assert.doesNotMatch(
+    workflow,
+    /run: npm publish --tag medusa --provenance --access public/
+  )
   assert.doesNotMatch(workflow, /npm\s+deprecate/)
 })
 
@@ -72,6 +95,11 @@ const lockedTransition = {
     package: "@mantajs/medusa-dashboard",
     version: "0.1.18-medusa.0",
   },
+  candidate: {
+    commit: "8723df1c922e98b1fe74a28f38edee4d47a20b23",
+    tarballSha256:
+      "18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb",
+  },
   state: "awaiting-oli-405",
   authorization: { authorized: false, owner: "OLI-405", evidence: null },
 }
@@ -90,16 +118,25 @@ const authorizedTransition = {
 }
 const validRelease = {
   packageJson: candidatePackage,
+  candidatePackageJson: candidatePackage,
   transition: authorizedTransition,
   actualTag: "v0.1.18-medusa.0",
   targetCommitish: "main",
   isMainAncestor: true,
+  isCandidateReleaseAncestor: true,
   githubEvidence: {
     baseRef: "refactor",
     checks: REQUIRED_B2B_CHECKS.map((name) => ({
       name,
+      appSlug: "github-actions",
+      source: "check-run",
       status: "completed",
       conclusion: "success",
+      workflowEvent: "pull_request",
+      workflowHeadCommit: "a".repeat(40),
+      workflowPath: ".github/workflows/build.yml",
+      workflowRepository: "OlivierBelaud/palas-wholesale",
+      workflowRunId: "12345",
     })),
     headCommit: "a".repeat(40),
     mergeCommit: null,
@@ -142,6 +179,23 @@ test("release guard rejects tags and commits outside main", () => {
     () => verifyRelease({ ...validRelease, isMainAncestor: false }),
     /contained in origin\/main/
   )
+  assert.throws(
+    () => verifyRelease({ ...validRelease, isCandidateReleaseAncestor: false }),
+    /candidate commit must be an ancestor of the release commit/
+  )
+})
+
+test("release guard binds the candidate package manifest", () => {
+  for (const candidatePackageJson of [
+    { ...candidatePackage, name: "@mantajs/dashboard" },
+    { ...candidatePackage, version: "0.1.18-medusa.1" },
+    { ...candidatePackage, publishConfig: { tag: "latest" } },
+  ]) {
+    assert.throws(
+      () => verifyRelease({ ...validRelease, candidatePackageJson }),
+      /candidate (package identity|package version|publishConfig)/
+    )
+  }
 })
 
 test("release guard rejects locked transition and incomplete OLI-405 evidence", () => {
@@ -176,6 +230,10 @@ test("release guard rejects a moved OLI-405 head or non-green checks", () => {
         ...validRelease,
         githubEvidence: {
           ...validRelease.githubEvidence,
+          checks: validRelease.githubEvidence.checks.map((check) => ({
+            ...check,
+            workflowHeadCommit: "c".repeat(40),
+          })),
           headCommit: "c".repeat(40),
         },
       }),
@@ -195,6 +253,97 @@ test("release guard rejects a moved OLI-405 head or non-green checks", () => {
         },
       }),
     /all OLI-405 checks must be green/
+  )
+  for (const conclusion of ["neutral", "skipped"]) {
+    assert.throws(
+      () =>
+        verifyRelease({
+          ...validRelease,
+          githubEvidence: {
+            ...validRelease.githubEvidence,
+            checks: REQUIRED_B2B_CHECKS.map((name, index) => ({
+              name,
+              appSlug: "github-actions",
+              source: "check-run",
+              status: "completed",
+              conclusion: index === 0 ? conclusion : "success",
+            })),
+          },
+        }),
+      /expected successful GitHub Actions workflow run/
+    )
+  }
+  assert.throws(
+    () =>
+      verifyRelease({
+        ...validRelease,
+        githubEvidence: {
+          ...validRelease.githubEvidence,
+          checks: [
+            ...validRelease.githubEvidence.checks,
+            {
+              name: REQUIRED_B2B_CHECKS[0],
+              appSlug: "github-actions",
+              source: "check-run",
+              status: "completed",
+              conclusion: "neutral",
+            },
+          ],
+        },
+      }),
+    /expected successful GitHub Actions workflow run/
+  )
+  assert.throws(
+    () =>
+      verifyRelease({
+        ...validRelease,
+        githubEvidence: {
+          ...validRelease.githubEvidence,
+          checks: validRelease.githubEvidence.checks.map((check, index) =>
+            index === 0
+              ? { ...check, appSlug: null, source: "commit-status" }
+              : check
+          ),
+        },
+      }),
+    /expected successful GitHub Actions workflow run/
+  )
+  assert.throws(
+    () =>
+      verifyRelease({
+        ...validRelease,
+        githubEvidence: {
+          ...validRelease.githubEvidence,
+          checks: validRelease.githubEvidence.checks.map((check, index) =>
+            index === 0
+              ? { ...check, workflowPath: ".github/workflows/spoof.yml" }
+              : check
+          ),
+        },
+      }),
+    /expected successful GitHub Actions workflow run/
+  )
+})
+
+test("transition rejects missing or malformed candidate attestations", () => {
+  assert.throws(
+    () =>
+      verifyTransitionAuthorization(
+        { ...lockedTransition, candidate: undefined },
+        { allowAwaiting: true }
+      ),
+    /exact Dashboard candidate commit/
+  )
+  assert.throws(
+    () =>
+      verifyTransitionAuthorization(
+        {
+          ...lockedTransition,
+          candidate: { ...lockedTransition.candidate, tarballSha256: "bad" },
+        },
+        { allowAwaiting: true }
+      ),
+    /candidate tarball SHA-256/
   )
 })
 
@@ -216,6 +365,10 @@ test("release guard also accepts post-merge OLI-405 evidence", () => {
       },
       githubEvidence: {
         ...validRelease.githubEvidence,
+        checks: validRelease.githubEvidence.checks.map((check) => ({
+          ...check,
+          workflowHeadCommit: "c".repeat(40),
+        })),
         headCommit: "c".repeat(40),
         mergeCommit: "b".repeat(40),
         merged: true,
@@ -244,10 +397,21 @@ test("GitHub evidence loader binds the private B2B PR and its head checks", () =
     if (endpoint.includes("/check-runs")) {
       return {
         check_runs: REQUIRED_B2B_CHECKS.map((name) => ({
+          app: { slug: "github-actions" },
           conclusion: "success",
+          details_url:
+            "https://github.com/OlivierBelaud/palas-wholesale/actions/runs/12345/job/67890",
           name,
           status: "completed",
         })),
+      }
+    }
+    if (endpoint.endsWith("/actions/runs/12345")) {
+      return {
+        event: "pull_request",
+        head_sha: "a".repeat(40),
+        path: ".github/workflows/build.yml",
+        repository: { full_name: "OlivierBelaud/palas-wholesale" },
       }
     }
     return { statuses: [] }
@@ -260,6 +424,76 @@ test("GitHub evidence loader binds the private B2B PR and its head checks", () =
     }),
     validRelease.githubEvidence
   )
-  assert.equal(requests.length, 3)
+  assert.equal(requests.length, 4)
   assert.ok(requests.every(([, token]) => token === "test-token"))
+})
+
+test("candidate normalization is deterministic and validates its manifest", async () => {
+  const fixture = await mkdtemp(join(tmpdir(), "candidate-normalization-test-"))
+  try {
+    const packageRoot = join(fixture, "package")
+    await mkdir(packageRoot)
+    await writeFile(join(packageRoot, "package.json"), JSON.stringify(candidatePackage))
+    await writeFile(join(packageRoot, "index.js"), "export const value = 1\n")
+    const rawOne = join(fixture, "raw-one.tgz")
+    const rawTwo = join(fixture, "raw-two.tgz")
+    const finalOne = join(fixture, "final-one.tgz")
+    const finalTwo = join(fixture, "final-two.tgz")
+    execFileSync("tar", ["-czf", rawOne, "-C", fixture, "package"])
+    await utimes(packageRoot, new Date(978_307_200_000), new Date(978_307_200_000))
+    execFileSync("tar", ["-czf", rawTwo, "-C", fixture, "package"])
+
+    const expected = {
+      ...lockedTransition,
+      candidate: { ...lockedTransition.candidate, tarballSha256: "" },
+    }
+    // Establish the canonical digest independently with the documented GNU tar flags.
+    const firstExtraction = join(fixture, "extract-one")
+    await mkdir(firstExtraction)
+    execFileSync("tar", ["-xzf", rawOne, "-C", firstExtraction])
+    execFileSync("tar", [
+      "--sort=name", "--mtime=UTC 1970-01-01", "--owner=0", "--group=0",
+      "--numeric-owner", "-czf", finalOne, "-C", firstExtraction, "package",
+    ])
+    expected.candidate.tarballSha256 = createHash("sha256")
+      .update(await readFile(finalOne))
+      .digest("hex")
+    prepareReleaseCandidate({
+      input: rawTwo,
+      output: finalTwo,
+      releasePackage: candidatePackage,
+      transition: expected,
+    })
+    assert.deepEqual(await readFile(finalTwo), await readFile(finalOne))
+
+    const wrongIdentity = {
+      ...expected,
+      to: { ...expected.to, package: "@mantajs/not-the-candidate" },
+    }
+    assert.throws(
+      () =>
+        prepareReleaseCandidate({
+          input: rawTwo,
+          output: finalTwo,
+          releasePackage: candidatePackage,
+          transition: wrongIdentity,
+        }),
+      /package identity must match/
+    )
+    assert.throws(
+      () =>
+        prepareReleaseCandidate({
+          input: rawTwo,
+          output: finalTwo,
+          releasePackage: {
+            ...candidatePackage,
+            publishConfig: { ...candidatePackage.publishConfig, tag: "latest" },
+          },
+          transition: expected,
+        }),
+      /publishConfig must match/
+    )
+  } finally {
+    await rm(fixture, { force: true, recursive: true })
+  }
 })
