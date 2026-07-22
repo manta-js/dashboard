@@ -5,6 +5,10 @@ import packageJson from "@mantajs/medusa-dashboard/package.json" with {
   type: "json",
 }
 
+globalThis.__BACKEND_URL__ = "http://localhost:9000"
+globalThis.__AUTH_TYPE__ = "session"
+globalThis.__JWT_TOKEN_STORAGE_KEY__ = ""
+
 if (packageJson.name !== "@mantajs/medusa-dashboard") {
   throw new Error(`canonical package identity mismatch: ${packageJson.name}`)
 }
@@ -19,17 +23,28 @@ for (const packageName of [
   "@mantajs/medusa-dashboard",
   "@medusajs/dashboard",
 ]) {
-  for (const subpath of ["", "/css", "/components", "/hooks", "/vite-plugin"]) {
+  for (const subpath of [
+    "",
+    "/css",
+    "/components",
+    "/shell",
+    "/hooks",
+    "/vite-plugin",
+  ]) {
     import.meta.resolve(`${packageName}${subpath}`)
   }
 }
 
 const require = createRequire(import.meta.url)
 const components = require("@mantajs/medusa-dashboard/components")
+const shell = require("@mantajs/medusa-dashboard/shell")
 const hooks = require("@mantajs/medusa-dashboard/hooks")
 const vitePlugin = require("@mantajs/medusa-dashboard/vite-plugin")
 if (typeof components.LayoutComposer !== "function") {
   throw new Error("CJS components missing")
+}
+if (typeof shell.Shell !== "function") {
+  throw new Error("CJS Shell extension boundary missing")
 }
 if (typeof hooks !== "object") throw new Error("CJS hooks missing")
 if (typeof vitePlugin.customDashboardPlugin !== "function") {

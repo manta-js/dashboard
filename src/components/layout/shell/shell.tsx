@@ -17,8 +17,9 @@ import { useGlobalShortcuts } from "../../../providers/keybind-provider/hooks"
 import { useSidebar } from "../../../providers/sidebar-provider"
 import { ProgressBar } from "../../common/progress-bar"
 import { Notifications } from "../notifications"
+import type { ShellProps } from "./types"
 
-export const Shell = ({ children }: PropsWithChildren) => {
+export const Shell = ({ children, topbarActions, effects }: ShellProps) => {
   const globalShortcuts = useGlobalShortcuts()
   const navigation = useNavigation()
 
@@ -26,6 +27,7 @@ export const Shell = ({ children }: PropsWithChildren) => {
 
   return (
     <KeybindProvider shortcuts={globalShortcuts}>
+      {effects}
       <div className="relative flex h-screen flex-col items-start overflow-hidden lg:flex-row">
         <NavigationBar loading={loading} />
         <div>
@@ -33,7 +35,7 @@ export const Shell = ({ children }: PropsWithChildren) => {
           <DesktopSidebarContainer>{children}</DesktopSidebarContainer>
         </div>
         <div className="flex h-screen w-full flex-col overflow-auto">
-          <Topbar />
+          <Topbar actions={topbarActions} />
           <main
             className={clx(
               "flex h-full w-full flex-col items-center overflow-y-auto transition-opacity delay-200 duration-200",
@@ -191,7 +193,7 @@ const ToggleSidebar = () => {
   )
 }
 
-const Topbar = () => {
+const Topbar = ({ actions }: { actions?: ReactNode }) => {
   return (
     <div className="grid w-full grid-cols-2 border-b p-3">
       <div className="flex items-center gap-x-1.5">
@@ -199,6 +201,7 @@ const Topbar = () => {
         <Breadcrumbs />
       </div>
       <div className="flex items-center justify-end gap-x-3">
+        {actions}
         <Notifications />
       </div>
     </div>

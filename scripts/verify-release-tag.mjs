@@ -3,6 +3,14 @@ import { execFileSync } from "node:child_process"
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  loadGithubReleaseEvidence,
+  REQUIRED_B2B_CHECKS,
+} from "./github-release-evidence.mjs"
+import {
+  AUTHORIZED_AFTER_VALIDATION,
+  verifyTransitionAuthorization,
+} from "./transition-contract.mjs"
 
 const root = resolve(import.meta.dirname, "..")
 
@@ -12,6 +20,7 @@ export const verifyRelease = ({
   actualTag,
   targetCommitish,
   isMainAncestor,
+  githubEvidence,
 }) => {
   assert.equal(
     packageJson.name,
@@ -43,30 +52,53 @@ export const verifyRelease = ({
     true,
     "release commit must be contained in origin/main"
   )
-  assert.equal(transition.schemaVersion, 1)
   assert.equal(transition.to?.package, packageJson.name)
   assert.equal(transition.to?.version, packageJson.version)
-  assert.equal(transition.authorization?.owner, "OLI-405")
+  verifyTransitionAuthorization(transition)
   assert.equal(
-    transition.state,
-    "authorized-after-oli-405",
-    "release transition is locked until OLI-405 migration is authorized"
+    githubEvidence?.url,
+    transition.authorization.evidence.pullRequest,
+    "GitHub evidence must match the authorized OLI-405 pull request"
   )
   assert.equal(
-    transition.authorization?.authorized,
-    true,
-    "OLI-405 must explicitly authorize the package release"
+    githubEvidence?.baseRef,
+    "refactor",
+    "OLI-405 must target the B2B refactor branch"
   )
-  assert.match(
-    transition.authorization?.evidence?.pullRequest || "",
-    /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/,
-    "authorization must record the merged OLI-405 pull request"
+  assert.ok(
+    githubEvidence?.checks?.length > 0 &&
+      githubEvidence.checks.every(
+        (check) =>
+          check.status === "completed" &&
+          ["success", "neutral", "skipped"].includes(check.conclusion)
+      ),
+    "all OLI-405 checks must be green"
   )
-  assert.match(
-    transition.authorization?.evidence?.mergeCommit || "",
-    /^[0-9a-f]{40}$/,
-    "authorization must record the OLI-405 merge commit"
+  const completedChecks = new Set(
+    githubEvidence.checks.map(({ name }) => name)
   )
+  assert.ok(
+    REQUIRED_B2B_CHECKS.every((name) => completedChecks.has(name)),
+    "OLI-405 must pass every required B2B CI job"
+  )
+
+  if (transition.state === AUTHORIZED_AFTER_VALIDATION) {
+    assert.equal(githubEvidence?.state, "open")
+    assert.equal(githubEvidence?.merged, false)
+    assert.equal(
+      githubEvidence?.headCommit,
+      transition.authorization.evidence.headCommit,
+      "GitHub must still expose the exact validated OLI-405 head commit"
+    )
+  } else {
+    assert.equal(githubEvidence?.state, "closed")
+    assert.equal(githubEvidence?.merged, true)
+    assert.equal(
+      githubEvidence?.mergeCommit,
+      transition.authorization.evidence.mergeCommit,
+      "GitHub must expose the authorized OLI-405 merge commit"
+    )
+  }
 }
 
 const run = async () => {
@@ -82,6 +114,7 @@ const run = async () => {
   const event = JSON.parse(
     await readFile(process.env.GITHUB_EVENT_PATH, "utf8")
   )
+  const githubEvidence = loadGithubReleaseEvidence(transition)
 
   let isMainAncestor = false
   try {
@@ -101,6 +134,7 @@ const run = async () => {
     actualTag: process.env.GITHUB_REF_NAME,
     targetCommitish: event.release?.target_commitish,
     isMainAncestor,
+    githubEvidence,
   })
 
   console.log(

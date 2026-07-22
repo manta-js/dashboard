@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "from": {
     "package": "@mantajs/dashboard",
     "version": "0.1.18-medusa.0"

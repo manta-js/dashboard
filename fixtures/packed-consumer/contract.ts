@@ -9,6 +9,10 @@ import {
   customDashboardPlugin as aliasedDashboardPlugin,
 } from "@medusajs/dashboard/vite-plugin"
 import { LayoutComposer } from "@mantajs/medusa-dashboard/components"
+import {
+  Shell,
+  type ShellProps,
+} from "@mantajs/medusa-dashboard/shell"
 import "@mantajs/medusa-dashboard/css"
 import * as hooks from "@mantajs/medusa-dashboard/hooks"
 import {
@@ -22,6 +26,11 @@ const dashboard: typeof Dashboard = Dashboard
 const aliasedDashboard: typeof Dashboard = AliasedDashboard
 const plugin: DashboardPlugin | undefined = undefined
 const composer: typeof LayoutComposer = LayoutComposer
+const shell: typeof Shell = Shell
+const shellProps: ShellProps = {
+  topbarActions: null,
+  effects: null,
+}
 const options: CustomDashboardPluginOptions = {}
 const override: DashboardComponentOverride = {
   override: "src/admin/components/orders/order-list.tsx",
@@ -35,6 +44,8 @@ void AliasedLayoutComposer
 void aliasedDashboardPlugin
 void plugin
 void composer
+void shell
+void shellProps
 void hooks
 void customDashboardPlugin
 void options

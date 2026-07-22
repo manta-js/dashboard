@@ -20,6 +20,18 @@ export default defineConfig({
     {
       name: "packed-consumer-production-proof",
       async buildStart() {
+        const canonicalShell = await this.resolve(
+          "@mantajs/medusa-dashboard/shell"
+        )
+        const aliasedShell = await this.resolve("@medusajs/dashboard/shell")
+        for (const resolvedShell of [canonicalShell, aliasedShell]) {
+          if (!resolvedShell?.id.endsWith("src/exports/shell.ts")) {
+            throw new Error(
+              `public Shell did not resolve to the Dashboard source graph: ${resolvedShell?.id}`
+            )
+          }
+        }
+
         const resolved = await this.resolve("./order-list", importer)
         if (!resolved?.id.endsWith("src/admin/components/orders/order-list.tsx")) {
           throw new Error(`production override did not resolve: ${resolved?.id}`)

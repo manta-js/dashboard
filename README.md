@@ -378,7 +378,12 @@ npm publication occurs only from a published GitHub Release. The release tag
 must exactly equal `v<package.version>`, target `main`, and reference a commit
 contained in `main`. The workflow reruns `yarn verify`, requires the protected
 `npm-medusa-dashboard` environment, and refuses publication while the transition
-manifest lacks merged OLI-405 evidence. OLI-398 leaves that manifest locked.
+manifest lacks explicitly authorized OLI-405 evidence for either an immutable
+green PR head or a merged PR. A validated head breaks the bootstrap dependency
+cycle; it does not itself authorize publication. At release time the protected
+environment's `B2B_RELEASE_VALIDATION_TOKEN` must also prove the private B2B PR,
+its `refactor` base, exact SHA, and green checks through GitHub. OLI-398 and
+OLI-415 leave the manifest locked.
 
 ## License
 

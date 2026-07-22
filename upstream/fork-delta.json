@@ -20,6 +20,27 @@
       "evidence": ["scripts/verify-upstream-delta.node.mjs", "src/dashboard-app/routes/__tests__/merge-extension-routes.spec.ts"]
     },
     {
+      "path": "src/components/layout/shell/shell.spec.tsx",
+      "kind": "added",
+      "surface": "public shell extension regression coverage",
+      "rationale": "Prove product-owned global actions and effects render without replacing built-in Dashboard notifications or route content.",
+      "evidence": ["src/components/layout/shell/shell.spec.tsx"]
+    },
+    {
+      "path": "src/components/layout/shell/shell.tsx",
+      "kind": "modified",
+      "surface": "public shell extension boundary",
+      "rationale": "Expose bounded topbar action and lifecycle effect slots so B2B can preserve the upstream shell instead of copying it and importing private providers.",
+      "evidence": ["src/components/layout/shell/shell.spec.tsx", "fixtures/packed-consumer/runtime-contract.mjs"]
+    },
+    {
+      "path": "src/components/layout/shell/types.ts",
+      "kind": "added",
+      "surface": "public shell extension types",
+      "rationale": "Keep the public Shell contract independent from the implementation graph so declaration packaging remains stable.",
+      "evidence": ["fixtures/packed-consumer/contract.ts"]
+    },
+    {
       "path": "src/dashboard-app/__tests__/sort-menu-items-by-rank.spec.ts",
       "kind": "modified",
       "surface": "menu ordering regression coverage",
@@ -83,6 +104,20 @@
       "evidence": ["scripts/verify-upstream-delta.mjs"]
     },
     {
+      "path": "src/exports/shell-types.ts",
+      "kind": "added",
+      "surface": "public shell declaration facade",
+      "rationale": "Generate stable Shell declarations without pulling Dashboard application internals into the declaration entrypoint.",
+      "evidence": ["fixtures/packed-consumer/contract.ts", "scripts/verify-package-contract.mjs"]
+    },
+    {
+      "path": "src/exports/shell.ts",
+      "kind": "added",
+      "surface": "public shell export",
+      "rationale": "Expose the Dashboard Shell and its extension props through a dedicated supported subpath without changing the existing components entrypoint.",
+      "evidence": ["fixtures/packed-consumer/contract.ts", "fixtures/packed-consumer/runtime-contract.mjs"]
+    },
+    {
       "path": "src/i18n/translations/ru.json",
       "kind": "modified",
       "surface": "translation integrity",
@@ -136,7 +171,7 @@
       "kind": "added",
       "surface": "packaged Vite extension API",
       "rationale": "Expose the fork-owned Vite plugin with explicit override policy, diagnostics, and lifecycle handling.",
-      "evidence": ["src/vite-plugin/__tests__/override-lifecycle.spec.ts", "src/vite-plugin/__tests__/override-policy.spec.ts", "src/vite-plugin/__tests__/override-diagnostics.spec.ts"]
+      "evidence": ["src/vite-plugin/__tests__/override-lifecycle.spec.ts", "src/vite-plugin/__tests__/override-policy.spec.ts", "src/vite-plugin/__tests__/override-diagnostics.spec.ts", "src/vite-plugin/__tests__/public-shell-resolution.spec.ts"]
     },
     {
       "path": "src/vite-plugin/override-diagnostics.ts",
@@ -179,6 +214,13 @@
       "surface": "override policy regression coverage",
       "rationale": "Prove undeclared files never authorize replacement and invalid declarations fail closed.",
       "evidence": ["src/vite-plugin/__tests__/override-policy.spec.ts"]
+    },
+    {
+      "path": "src/vite-plugin/__tests__/public-shell-resolution.spec.ts",
+      "kind": "added",
+      "surface": "public shell source identity regression coverage",
+      "rationale": "Prove canonical and aliased Shell imports stay in the active Dashboard source graph and fail closed when that source entry is missing.",
+      "evidence": ["src/vite-plugin/__tests__/public-shell-resolution.spec.ts", "fixtures/packed-consumer/vite.config.mjs"]
     }
   ]
 }
