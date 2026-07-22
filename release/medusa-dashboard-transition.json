@@ -8,6 +8,10 @@
     "package": "@mantajs/medusa-dashboard",
     "version": "0.1.18-medusa.0"
   },
+  "candidate": {
+    "commit": "8723df1c922e98b1fe74a28f38edee4d47a20b23",
+    "tarballSha256": "18c60cc87f4b957772c2450b241d2e852c05b939e9ccc76f1c57c32fd3d90ebb"
+  },
   "state": "awaiting-oli-405",
   "authorization": {
     "authorized": false,

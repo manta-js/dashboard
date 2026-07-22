@@ -31,11 +31,33 @@ jobs:
 
       - run: yarn verify
 
-      - name: Verify release tag and branch
+      - name: Verify release tag, branch and candidate attestation
+        id: release
         env:
           B2B_RELEASE_VALIDATION_TOKEN: ${{ secrets.B2B_RELEASE_VALIDATION_TOKEN }}
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
           node ./scripts/verify-release-tag.mjs
 
-      - run: npm publish --tag medusa --provenance --access public
+      - name: Rebuild attested candidate archive
+        env:
+          CANDIDATE_COMMIT: ${{ steps.release.outputs.candidate_commit }}
+          CANDIDATE_RAW_TARBALL: ${{ runner.temp }}/mantajs-medusa-dashboard-raw.tgz
+          CANDIDATE_TARBALL: ${{ runner.temp }}/mantajs-medusa-dashboard-0.1.18-medusa.0.tgz
+          CANDIDATE_WORKTREE: ${{ runner.temp }}/medusa-dashboard-candidate
+        run: |
+          git worktree add --detach "$CANDIDATE_WORKTREE" "$CANDIDATE_COMMIT"
+          cd "$CANDIDATE_WORKTREE"
+          git clean -ffdx
+          yarn install --frozen-lockfile
+          yarn build
+          yarn pack --filename "$CANDIDATE_RAW_TARBALL"
+          cd "$GITHUB_WORKSPACE"
+          node ./scripts/prepare-release-candidate.mjs \
+            "$CANDIDATE_RAW_TARBALL" \
+            "$CANDIDATE_TARBALL"
+
+      - name: Publish attested candidate archive
+        env:
+          CANDIDATE_TARBALL: ${{ runner.temp }}/mantajs-medusa-dashboard-0.1.18-medusa.0.tgz
+        run: npm publish "$CANDIDATE_TARBALL" --tag medusa --provenance --access public

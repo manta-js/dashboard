@@ -3,8 +3,11 @@ import { execFileSync } from "node:child_process"
 
 const PR_PATTERN =
   /^https:\/\/github\.com\/OlivierBelaud\/palas-wholesale\/pull\/(\d+)$/
+const ACTIONS_RUN_PATTERN =
+  /^https:\/\/github\.com\/OlivierBelaud\/palas-wholesale\/actions\/runs\/(\d+)(?:\/job\/\d+)?$/
 
 export const REQUIRED_B2B_CHECKS = [
+  "Build exact Medusa Dashboard candidate",
   "Backend contract, quality, coverage and build",
   "Backend module integration (PostgreSQL)",
   "Backend HTTP integration (PostgreSQL)",
@@ -52,18 +55,44 @@ export const loadGithubReleaseEvidence = (
     `repos/${repository}/commits/${headCommit}/status?per_page=100`,
     token
   ).statuses
+  const workflowRuns = new Map()
+  for (const check of checkRuns) {
+    if (!REQUIRED_B2B_CHECKS.includes(check.name)) {
+      continue
+    }
+    const runId = check.details_url?.match(ACTIONS_RUN_PATTERN)?.[1]
+    if (runId && !workflowRuns.has(runId)) {
+      workflowRuns.set(
+        runId,
+        request(`repos/${repository}/actions/runs/${runId}`, token)
+      )
+    }
+  }
 
   return {
     baseRef: pr.base?.ref,
     checks: [
-      ...checkRuns.map((check) => ({
-        conclusion: check.conclusion,
-        name: check.name,
-        status: check.status,
-      })),
+      ...checkRuns.map((check) => {
+        const workflowRunId = check.details_url?.match(ACTIONS_RUN_PATTERN)?.[1]
+        const workflowRun = workflowRuns.get(workflowRunId)
+        return {
+          appSlug: check.app?.slug,
+          conclusion: check.conclusion,
+          name: check.name,
+          source: "check-run",
+          status: check.status,
+          workflowEvent: workflowRun?.event,
+          workflowHeadCommit: workflowRun?.head_sha,
+          workflowPath: workflowRun?.path,
+          workflowRepository: workflowRun?.repository?.full_name,
+          workflowRunId,
+        }
+      }),
       ...(statuses || []).map((status) => ({
+        appSlug: null,
         conclusion: status.state,
         name: status.context,
+        source: "commit-status",
         status: "completed",
       })),
     ],

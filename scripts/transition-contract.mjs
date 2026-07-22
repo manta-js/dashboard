@@ -8,6 +8,7 @@ export const AUTHORIZED_AFTER_MERGE = "authorized-after-oli-405"
 const PULL_REQUEST_PATTERN =
   /^https:\/\/github\.com\/OlivierBelaud\/palas-wholesale\/pull\/\d+$/
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
 export const verifyTransitionAuthorization = (
   transition,
@@ -15,6 +16,16 @@ export const verifyTransitionAuthorization = (
 ) => {
   assert.equal(transition.schemaVersion, 2)
   assert.equal(transition.authorization?.owner, "OLI-405")
+  assert.match(
+    transition.candidate?.commit || "",
+    COMMIT_PATTERN,
+    "transition must record the exact Dashboard candidate commit"
+  )
+  assert.match(
+    transition.candidate?.tarballSha256 || "",
+    SHA256_PATTERN,
+    "transition must record the exact candidate tarball SHA-256"
+  )
 
   if (transition.state === AWAITING_OLI_405) {
     assert.equal(
