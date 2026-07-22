@@ -28,6 +28,21 @@ if (resolved.includes("undeclared/order-list.tsx")) {
   throw new Error("undeclared same-name override was applied")
 }
 
+const shellTargetPath = join(packageRoot, componentOverrides[1].target)
+const shellImporter = join(
+  packageRoot,
+  "src/components/layout/shell/index.ts"
+)
+const resolvedShell = await resolveHook.call(
+  { resolve: async () => ({ id: shellTargetPath }) },
+  "./shell",
+  shellImporter,
+  { attributes: {}, isEntry: false }
+)
+if (!resolvedShell.endsWith("src/admin/components/shell.tsx")) {
+  throw new Error(`declared Shell override did not resolve: ${resolvedShell}`)
+}
+
 const buildEnd =
   typeof plugin.buildEnd === "function"
     ? plugin.buildEnd

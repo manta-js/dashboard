@@ -18,6 +18,7 @@ const PUBLIC_SHELL_IDS = new Set([
   "@mantajs/medusa-dashboard/shell",
   "@medusajs/dashboard/shell",
 ])
+const PUBLIC_SHELL_FACADE_SUFFIX = "/exports/shell.ts"
 
 function findDashboardSrc(): string | null {
   const cwd = process.cwd()
@@ -193,7 +194,10 @@ export function customDashboardPlugin(
       // Resolve only exact, explicitly configured target modules.
       if (importer) {
         const normImporter = importer.replace(/\\/g, "/")
-        if (normImporter.includes("/dashboard/src/")) {
+        if (
+          normImporter.includes("/dashboard/src/") &&
+          !normImporter.endsWith(PUBLIC_SHELL_FACADE_SUFFIX)
+        ) {
           const resolvedOriginal = await this.resolve(source, importer, {
             skipSelf: true,
           })
