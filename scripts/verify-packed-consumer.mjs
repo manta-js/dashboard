@@ -191,15 +191,21 @@ try {
     }).trim()
   )
   assert.deepEqual(developmentSummary, {
-    accepted: 1,
-    applied: 1,
-    configured: 1,
+    accepted: 2,
+    applied: 2,
+    configured: 2,
     decisions: [
       {
         entry: 0,
         override: "src/admin/components/orders/order-list.tsx",
         status: "applied",
         target: "src/routes/orders/order-list/order-list.tsx",
+      },
+      {
+        entry: 1,
+        override: "src/admin/components/shell.tsx",
+        status: "applied",
+        target: "src/components/layout/shell/shell.tsx",
       },
     ],
     rejected: 0,

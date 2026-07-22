@@ -8,6 +8,14 @@ const packageRoot = dirname(
   fileURLToPath(import.meta.resolve("@medusajs/dashboard/package.json"))
 )
 const importer = join(packageRoot, "src/routes/orders/order-list/index.ts")
+const shellTarget = join(
+  packageRoot,
+  "src/components/layout/shell/shell.tsx"
+)
+const shellImporter = join(
+  packageRoot,
+  "src/components/layout/shell/index.ts"
+)
 const dashboardPlugin = createConsumerDashboardPlugin({
   onSummary: (summary) =>
     writeFileSync("production-summary.json", `${JSON.stringify(summary)}\n`),
@@ -35,6 +43,22 @@ export default defineConfig({
         const resolved = await this.resolve("./order-list", importer)
         if (!resolved?.id.endsWith("src/admin/components/orders/order-list.tsx")) {
           throw new Error(`production override did not resolve: ${resolved?.id}`)
+        }
+
+        const resolveHook =
+          typeof dashboardPlugin.resolveId === "function"
+            ? dashboardPlugin.resolveId
+            : dashboardPlugin.resolveId.handler
+        const resolvedShell = await resolveHook.call(
+          { resolve: async () => ({ id: shellTarget }) },
+          "./shell",
+          shellImporter,
+          { attributes: {}, isEntry: false }
+        )
+        if (!resolvedShell.endsWith("src/admin/components/shell.tsx")) {
+          throw new Error(
+            `production Shell override did not resolve: ${resolvedShell}`
+          )
         }
       },
     },
