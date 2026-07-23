@@ -41,8 +41,8 @@ export const verifyRelease = ({
   )
   assert.equal(
     actualTag,
-    `v${packageJson.version}`,
-    `release tag ${actualTag || "<missing>"} must match package version v${packageJson.version}`
+    `medusa-dashboard-v${packageJson.version}`,
+    `release tag ${actualTag || "<missing>"} must use the Medusa Dashboard namespace medusa-dashboard-v${packageJson.version}`
   )
   assert.equal(
     targetCommitish,

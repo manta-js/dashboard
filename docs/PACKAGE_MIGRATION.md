@@ -40,9 +40,12 @@ authorized release.
    bootstrap mechanism, `authorized-after-oli-405` instead records evidence
    type `merged-pr` and the full `mergeCommit`.
 5. A separate published GitHub Release targeting a commit contained in `main`
-   may then run the protected npm workflow. The protected
-   `npm-medusa-dashboard` environment must provide a private-repository token as
-   `B2B_RELEASE_VALIDATION_TOKEN`; the release guard fetches the recorded PR,
+   with the package-qualified tag
+   `medusa-dashboard-v0.1.18-medusa.0` may then run the protected npm workflow.
+   The existing legacy `v0.1.18-medusa.0` release and tag remain immutable. The
+   protected `npm-medusa-dashboard` environment must provide a
+   private-repository token as `B2B_RELEASE_VALIDATION_TOKEN`; the release guard
+   fetches the recorded PR,
    verifies its `refactor` base, immutable head or merge SHA, and green checks.
    Every required check, including `Build exact Medusa Dashboard candidate`,
    must be a GitHub Actions check run and conclude `success`; legacy commit

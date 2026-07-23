@@ -375,12 +375,15 @@ yarn i18n:validate
 ## Release policy
 
 npm publication occurs only from a published GitHub Release. The release tag
-must exactly equal `v<package.version>`, target `main`, and reference a commit
-contained in `main`. The workflow reruns `yarn verify`, requires the protected
-`npm-medusa-dashboard` environment, and refuses publication while the transition
-manifest lacks explicitly authorized OLI-405 evidence for either an immutable
-green PR head or a merged PR. A validated head breaks the bootstrap dependency
-cycle; it does not itself authorize publication. At release time the protected
+must exactly equal `medusa-dashboard-v<package.version>`, target `main`, and
+reference a commit contained in `main`. The package-qualified prefix preserves
+the existing `v0.1.18-medusa.0` release for the legacy package lineage instead
+of moving or overwriting its immutable tag. The workflow reruns `yarn verify`,
+requires the protected `npm-medusa-dashboard` environment, and refuses
+publication while the transition manifest lacks explicitly authorized OLI-405
+evidence for either an immutable green PR head or a merged PR. A validated head
+breaks the bootstrap dependency cycle; it does not itself authorize
+publication. At release time the protected
 environment's `B2B_RELEASE_VALIDATION_TOKEN` must also prove the private B2B PR,
 its `refactor` base, exact SHA, and required checks with conclusion `success`
 through GitHub. The transition manifest separately attests Dashboard candidate

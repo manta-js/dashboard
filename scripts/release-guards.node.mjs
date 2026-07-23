@@ -137,7 +137,7 @@ const validRelease = {
   packageJson: candidatePackage,
   candidatePackageJson: candidatePackage,
   transition: authorizedTransition,
-  actualTag: "v0.1.18-medusa.0",
+  actualTag: "medusa-dashboard-v0.1.18-medusa.0",
   targetCommitish: "main",
   isMainAncestor: true,
   isCandidateReleaseAncestor: true,
@@ -186,7 +186,15 @@ test("release guard rejects ambiguous identity and generic versions", () => {
 test("release guard rejects tags and commits outside main", () => {
   assert.throws(
     () => verifyRelease({ ...validRelease, actualTag: "v0.1.18" }),
-    /must match package version/
+    /must use the Medusa Dashboard namespace/
+  )
+  assert.throws(
+    () =>
+      verifyRelease({
+        ...validRelease,
+        actualTag: "v0.1.18-medusa.0",
+      }),
+    /must use the Medusa Dashboard namespace/
   )
   assert.throws(
     () => verifyRelease({ ...validRelease, targetCommitish: "feature" }),
