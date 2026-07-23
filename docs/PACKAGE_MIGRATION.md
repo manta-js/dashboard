@@ -43,6 +43,8 @@ authorized release.
    with the package-qualified tag
    `medusa-dashboard-v0.1.18-medusa.0` may then run the protected npm workflow.
    The existing legacy `v0.1.18-medusa.0` release and tag remain immutable. The
+   release must explicitly target `main`; never infer the target from the
+   maintainer's current local branch.
    protected `npm-medusa-dashboard` environment must provide a
    private-repository token as `B2B_RELEASE_VALIDATION_TOKEN`; the release guard
    fetches the recorded PR,
