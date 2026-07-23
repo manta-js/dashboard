@@ -396,6 +396,10 @@ and publishes the verified tarball instead of the authorization commit. OLI-419
 records the explicitly authorized immutable B2B PR #41 head; a pull request
 still cannot invoke the protected publication workflow.
 
+For this transition, create the prerelease with
+`gh release create medusa-dashboard-v0.1.18-medusa.0 --target main --prerelease`;
+using an implicit target or the legacy tag is not supported.
+
 ## License
 
 [MIT](LICENSE)
