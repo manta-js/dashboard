@@ -389,8 +389,9 @@ commit `8723df1c922e98b1fe74a28f38edee4d47a20b23` and tarball SHA-256
 The protected workflow rebuilds that commit in a fresh worktree, normalizes the
 archive timestamps, ownership and POSIX modes, verifies its internal package
 manifest and exact archive hash,
-and publishes the verified tarball instead of the authorization commit. OLI-398 and
-OLI-415 leave the manifest locked.
+and publishes the verified tarball instead of the authorization commit. OLI-419
+records the explicitly authorized immutable B2B PR #41 head; a pull request
+still cannot invoke the protected publication workflow.
 
 ## License
 

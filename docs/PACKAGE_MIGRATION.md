@@ -2,9 +2,13 @@
 
 ## Current boundary
 
-OLI-398 prepares, but does not publish, `@mantajs/medusa-dashboard`. The B2B
-application remains unchanged and continues to resolve the exact rollback
-package `@mantajs/dashboard@0.1.18-medusa.0`. The generic
+OLI-419 records the product owner's explicit authorization after every required
+check passed on immutable B2B PR #41 head
+`afa252ff27239b90edfd1bd5421c00c9f33e2a26`. The authorization PR itself does
+not publish the package; only the separately protected GitHub Release
+workflow may publish it. The B2B application continues to resolve the exact
+rollback package `@mantajs/dashboard@0.1.18-medusa.0` until the registry release
+is verified and OLI-405 replaces its candidate dependency. The generic
 `@mantajs/dashboard@0.2.x` line is a different package lineage and must never be
 overwritten or deprecated as part of this transition.
 
@@ -27,11 +31,12 @@ authorized release.
    These values are recorded in the transition manifest. All B2B gates must pass on one immutable
    40-character PR head SHA; the candidate archive is test input, not a
    committed dependency or a production deployment.
-4. After that validation, and only with explicit release authorization, an
-   operator may update `release/medusa-dashboard-transition.json` to
-   `authorized-after-oli-405-validation`, set `authorization.authorized` to
-   `true`, and record evidence type `validated-pr-head`, the B2B PR URL, and its
-   exact `headCommit`. If OLI-405 was already merged using another valid
+4. After that validation, and only with explicit release authorization, OLI-419
+   updates `release/medusa-dashboard-transition.json` to
+   `authorized-after-oli-405-validation`, sets `authorization.authorized` to
+   `true`, and records evidence type `validated-pr-head`, the B2B PR URL, and its
+   exact `headCommit`. The recorded evidence is B2B PR #41 at
+   `afa252ff27239b90edfd1bd5421c00c9f33e2a26`. If OLI-405 was already merged using another valid
    bootstrap mechanism, `authorized-after-oli-405` instead records evidence
    type `merged-pr` and the full `mergeCommit`.
 5. A separate published GitHub Release targeting a commit contained in `main`
@@ -66,11 +71,12 @@ Restore the B2B resolution and lockfile to
 delete npm history, overwrite a version, force-publish, or alter the generic
 dashboard package line.
 
-## No-release guarantee before explicit authorization
+## Authorized release boundary
 
 The publish workflow has only the GitHub `release.published` trigger; pushes and
-pull requests cannot invoke it. Package-contract tests keep the transition in
-`awaiting-oli-405` with no authorization evidence, while the release verifier
-requires the opposite authorized state plus immutable OLI-405 evidence before
-`npm publish` can run. OLI-398 and OLI-415 do not publish, deprecate, create a
-GitHub Release, deploy, or change B2B.
+pull requests cannot invoke it. Package-contract tests now pin the exact
+authorized OLI-405 PR head, while the release verifier independently reloads
+that private PR and requires every named GitHub Actions check to have succeeded
+in one run before `npm publish` can execute. OLI-398 and OLI-415 do not publish,
+deprecate, create a GitHub Release, deploy, or change B2B; OLI-419 owns this
+separately authorized release.
