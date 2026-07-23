@@ -35,7 +35,7 @@ test("candidate uses the unambiguous Medusa dashboard identity", async () => {
   assert.match(packageJson.version, /^\d+\.\d+\.\d+-medusa\.\d+$/)
 })
 
-test("transition records the staged OLI-405 validation contract", async () => {
+test("transition records the authorized immutable OLI-405 validation", async () => {
   const transition = await readJson("release/medusa-dashboard-transition.json")
 
   assert.equal(transition.from.package, "@mantajs/dashboard")
@@ -50,9 +50,17 @@ test("transition records the staged OLI-405 validation contract", async () => {
     transition.candidate.tarballSha256,
     "0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da"
   )
-  assert.doesNotThrow(() =>
-    verifyTransitionAuthorization(transition, { allowAwaiting: true })
-  )
+  assert.equal(transition.state, "authorized-after-oli-405-validation")
+  assert.deepEqual(transition.authorization, {
+    authorized: true,
+    owner: "OLI-405",
+    evidence: {
+      type: "validated-pr-head",
+      pullRequest: "https://github.com/OlivierBelaud/palas-wholesale/pull/41",
+      headCommit: "afa252ff27239b90edfd1bd5421c00c9f33e2a26",
+    },
+  })
+  assert.doesNotThrow(() => verifyTransitionAuthorization(transition))
 })
 
 test("publish workflow cannot run on push or pull request", async () => {
@@ -89,7 +97,7 @@ test("migration documentation preserves rollback and deferred ownership", async 
   assert.match(documentation, /@mantajs\/dashboard@0\.1\.18-medusa\.0/)
   assert.match(documentation, /@mantajs\/medusa-dashboard/)
   assert.match(documentation, /OLI-405/)
-  assert.match(documentation, /does not publish/)
+  assert.match(documentation, /authorization PR itself does[\s\n]+not publish/)
   assert.match(documentation, /Never deprecate[\s\S]*generic `0\.2\.x`/)
 })
 
@@ -129,7 +137,7 @@ const validRelease = {
   packageJson: candidatePackage,
   candidatePackageJson: candidatePackage,
   transition: authorizedTransition,
-  actualTag: "v0.1.18-medusa.0",
+  actualTag: "medusa-dashboard-v0.1.18-medusa.0",
   targetCommitish: "main",
   isMainAncestor: true,
   isCandidateReleaseAncestor: true,
@@ -178,7 +186,15 @@ test("release guard rejects ambiguous identity and generic versions", () => {
 test("release guard rejects tags and commits outside main", () => {
   assert.throws(
     () => verifyRelease({ ...validRelease, actualTag: "v0.1.18" }),
-    /must match package version/
+    /must use the Medusa Dashboard namespace/
+  )
+  assert.throws(
+    () =>
+      verifyRelease({
+        ...validRelease,
+        actualTag: "v0.1.18-medusa.0",
+      }),
+    /must use the Medusa Dashboard namespace/
   )
   assert.throws(
     () => verifyRelease({ ...validRelease, targetCommitish: "feature" }),

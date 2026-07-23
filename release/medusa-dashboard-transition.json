@@ -12,10 +12,14 @@
     "commit": "8723df1c922e98b1fe74a28f38edee4d47a20b23",
     "tarballSha256": "0ecca5c6c4908c6577299153a63e10be47ce9d0afbe4ecf296254014825518da"
   },
-  "state": "awaiting-oli-405",
+  "state": "authorized-after-oli-405-validation",
   "authorization": {
-    "authorized": false,
+    "authorized": true,
     "owner": "OLI-405",
-    "evidence": null
+    "evidence": {
+      "type": "validated-pr-head",
+      "pullRequest": "https://github.com/OlivierBelaud/palas-wholesale/pull/41",
+      "headCommit": "afa252ff27239b90edfd1bd5421c00c9f33e2a26"
+    }
   }
 }
